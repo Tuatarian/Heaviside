@@ -1,4 +1,5 @@
-+,-,*,/
-:
+[,],(,){,}
+ ,:,(,),[,],{,},\n,\r
+ ,\n,\r
 
 // ex code : f(a, b) = ident f: ident a, ident b
