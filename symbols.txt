@@ -2,4 +2,4 @@
  ,:,(,),[,],{,},\n,\r
  ,\n,\r
 
-// ex code : f(a, b) = ident f: ident a, ident b
+f(a, b) g(2, 3, f), h(f(g, a), g(b, c), 12, "White"), a(b(c, c, "12", d(f, g)), g(c, WHITE))

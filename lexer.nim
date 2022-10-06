@@ -1,4 +1,4 @@
-import os, strutils, sequtils, sugar, zero_functional
+import os, strutils, sequtils, sugar, zero_functional, strformat
 
 const syms = readFile("./symbols.txt").splitLines
 
@@ -10,7 +10,7 @@ type TKind = enum
     TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc
 
 type NKind = enum
-    NkIdent, NkCall, NkNumLit
+    NkIdent, NkCall, NkNumLit, NkStrLit
 
 type Token = object
     kind : TKind
@@ -27,10 +27,21 @@ func `!`(n : Token) : string = n.val
 func `$$`(n : ASTNode) : char = n.val[0]
 func `$$`(n : Token) : char = n.val[0]
 
-func shift(n : ASTNode, i : SomeInteger) : ASTNode =
-    result = n
-    result.left += i
-    result.right += i
+func shift(n : var ASTNode, i : SomeInteger) =
+    n.left += i
+    n.right += i
+
+proc print(n : seq[ASTNode]) =
+    var depth : int
+    var rights : seq[int]
+    for i in 0..<n.len:
+        if i in rights:
+            depth += -1
+        for i in 0..<depth: stdout.write("    ")
+        echo &"{n[i].kind} {!n[i]}"
+        if n[i].kind == NkCall:
+            depth += 1
+            rights.add n[i].right
 
 let inp = readFile(commandLineParams()[0]).splitLines[4]
 echo inp
@@ -67,32 +78,41 @@ proc delete[T](s : var seq[T], r : Slice[Natural]) = ## Delete all items in a..b
 func recDescent(inp : seq[Token], beg : int) : (seq[ASTNode], int) =
     # assuming beg is at the call
     var i = beg + 2
+    var nextLeft : int
     result[0].add ASTNode(kind : NkCall, val : !inp[beg])
-    while $$inp[i] != ')':
-        debugEcho i
-        debugEcho inp[i]
+    while i in 0..<inp.len and $$inp[i] != ')':
         if $$inp[i + 1] == '(' and inp[i].kind == TkIdent:
             var (newTree, enx) = recDescent(inp, i)
-            newTree[0].left = beg
+            for i in 0..<newTree.len: newTree[i].shift(result[0].len)
             i = enx
-        elif inp[i].kind == TkIdent:
-            result[0].add ASTNode(kind : NkIdent, val : !inp[i], left : beg)
-        elif inp[i].kind == TkNumLit:
-            result[0].add ASTNode(kind : NkNumLit, val : !inp[i])
+            nextLeft = result[0].len
+            result[0] &= newTree
+        else:
+            case inp[i].kind:
+                of TkIdent:
+                    result[0].add ASTNode(kind : NkIdent, val : !inp[i], left : nextLeft, right : result[0].len + 1)
+                of TkNumLit:
+                    result[0].add ASTNode(kind : NkNumLit, val : !inp[i], left : nextLeft, right : result[0].len + 1)
+                of TkStrLit:
+                    result[0].add ASTNode(kind : NkStrLit, val : !inp[i], left : nextLeft, right : result[0].len + 1)
+                of TkPunc: discard
+                of TkWSpace: discard
+                else: raise newException(Defect, "Unrecognized Token Kind : This should never happen")
+            nextLeft = result[0].len - 1
         i += 1
+    result[0][0].right = result[0].len
     return (result[0], i + 1)
 
 func parse(inp : seq[Token]) : seq[ASTNode] =
     var i : int
-    while i in 0..<inp.len - 1:
-        debugEcho i, " hi"
-        debugEcho inp[i]
+    while i in 0..<inp.len:
         if $$inp[i + 1] == '(':
             let shift = i - result.len
             var newTree : seq[ASTNode]
             (newTree, i) = inp.recDescent i
-            newTree.apply(x => x.left - shift)
+            for i in 0..<newTree.len: newTree[i].shift(result.len)
             result &= newTree
+            continue
         i += 1
 
 # func parseCall(lex : seq[ASTNode], beg : int, inx : var int) : seq[(nType, string)] =
@@ -117,4 +137,5 @@ func parse(inp : seq[Token]) : seq[ASTNode] =
 echo "-"
 echo inp.partFile
 echo inp.partFile.tokenize().map(x => !x), inp.partFile.tokenize().map(x => !x).len
+print inp.partFile.tokenize().parse
 echo inp.partFile.tokenize().parse
