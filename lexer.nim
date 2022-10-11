@@ -24,6 +24,8 @@ type ASTNode = object
 func `!`(n : ASTNode) : string = n.val
 func `!`(n : Token) : string = n.val
 
+func `$`(n : ASTNode) : string = &"({n.kind} {!n} : ({n.left},{n.right}))"
+  
 func `$$`(n : ASTNode) : char = n.val[0]
 func `$$`(n : Token) : char = n.val[0]
 
@@ -35,8 +37,7 @@ proc print(n : seq[ASTNode]) =
     var depth : int
     var rights : seq[int]
     for i in 0..<n.len:
-        if i in rights:
-            depth += -1
+        depth += -rights.count(i)
         for i in 0..<depth: stdout.write("    ")
         echo &"{n[i].kind} {!n[i]}"
         if n[i].kind == NkCall:
@@ -80,13 +81,15 @@ func recDescent(inp : seq[Token], beg : int) : (seq[ASTNode], int) =
     var i = beg + 2
     var nextLeft : int
     result[0].add ASTNode(kind : NkCall, val : !inp[beg])
-    while i in 0..<inp.len and $$inp[i] != ')':
+    while $$inp[i] != ')':
         if $$inp[i + 1] == '(' and inp[i].kind == TkIdent:
             var (newTree, enx) = recDescent(inp, i)
-            for i in 0..<newTree.len: newTree[i].shift(result[0].len)
+            for i in 1..<newTree.len: newTree[i].shift(result[0].len)
+            newTree[0].right += result[0].len
             i = enx
             nextLeft = result[0].len
             result[0] &= newTree
+            if i >= inp.len: break
         else:
             case inp[i].kind:
                 of TkIdent:
@@ -99,8 +102,12 @@ func recDescent(inp : seq[Token], beg : int) : (seq[ASTNode], int) =
                 of TkWSpace: discard
                 else: raise newException(Defect, "Unrecognized Token Kind : This should never happen")
             nextLeft = result[0].len - 1
-        i += 1
+            i += 1
     result[0][0].right = result[0].len
+    debugEcho i + 1
+    if i + 1 < inp.len: debugEcho inp[i + 1]
+    else: debugEcho inp.len
+    debugEcho result[0][0], result[0]
     return (result[0], i + 1)
 
 func parse(inp : seq[Token]) : seq[ASTNode] =
@@ -138,4 +145,5 @@ echo "-"
 echo inp.partFile
 echo inp.partFile.tokenize().map(x => !x), inp.partFile.tokenize().map(x => !x).len
 print inp.partFile.tokenize().parse
-echo inp.partFile.tokenize().parse
+let tree = inp.partFile.tokenize().parse 
+echo tree.map(n => $n & &" : ({tree.find(n)} {n.left} {n.right}), ")
