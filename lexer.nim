@@ -5,12 +5,14 @@ const syms = readFile("./symbols.txt").splitLines
 const lexStop = @[',', '\n'] & syms[1].split(',').toSeq.map(x => x[0])
 const whitespaces = syms[2].split(',').toSeq.map(x => x[0])
 const punc = ',' & syms[0].split(',').toSeq.map(x => x[0])
+const endWord = ',' & whitespaces
+const ops = syms[3].split(',').map(x => x[0])
 
 type TKind = enum
-    TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc
+    TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp
 
 type NKind = enum
-    NkIdent, NkCall, NkNumLit, NkStrLit
+    NkIdent, NkCall, NkNumLit, NkStrLit, NkOp
 
 type Token = object
     kind : TKind
@@ -44,9 +46,6 @@ proc print(n : seq[ASTNode]) =
             depth += 1
             rights.add n[i].right
 
-let inp = readFile(commandLineParams()[0]).splitLines[4]
-echo inp
-
 proc partFile(inp : string) : seq[string] =
     var cWord : string
     for c in inp:
@@ -56,6 +55,8 @@ proc partFile(inp : string) : seq[string] =
             result.add $c
             cWord = ""
         else: cWord.add c
+    if cWord[0] notin lexStop:
+        result.add cWord
 
 proc tokenize(inp : seq[string]) : seq[Token] =
     for i in 0..<inp.len:
@@ -65,6 +66,8 @@ proc tokenize(inp : seq[string]) : seq[Token] =
             result.add Token(kind : TkStrLit, val : inp[i])
         elif inp[i][0] in punc:
             result.add Token(kind : TkPunc, val : inp[i])
+        elif inp[i][0] in ops:
+            result.add Token(kind : TkOp, val : inp[i])
         elif inp[i][0] notin whitespaces:
             result.add Token(kind : TkIdent, val : inp[i])
 
@@ -76,6 +79,11 @@ proc delete[T](s : var seq[T], r : Slice[Natural]) = ## Delete all items in a..b
     for i in 0..<r.len:
         s.delete(r[0])
 
+proc pushInto[T](e : T, s : var seq[T], frm : int) =
+    s.add e
+    for i in frm + 1..<s.len:
+        swap(s[frm], s[i])
+        
 func recDescent(inp : seq[Token], beg : int) : (seq[ASTNode], int) =
     # assuming beg is at the call
     var i = beg + 2
@@ -104,23 +112,47 @@ func recDescent(inp : seq[Token], beg : int) : (seq[ASTNode], int) =
             nextLeft = result[0].len - 1
             i += 1
     result[0][0].right = result[0].len
-    debugEcho i + 1
-    if i + 1 < inp.len: debugEcho inp[i + 1]
-    else: debugEcho inp.len
-    debugEcho result[0][0], result[0]
     return (result[0], i + 1)
 
 func parse(inp : seq[Token]) : seq[ASTNode] =
     var i : int
+    var lastTop : (int, int, int) # (inx, left, right)
+    var prevOps : seq[(int, int, int)]
+    var inOp : int
     while i in 0..<inp.len:
-        if $$inp[i + 1] == '(':
+        if i + 1 < inp.len and $$inp[i + 1] == '(':
             let shift = i - result.len
             var newTree : seq[ASTNode]
             (newTree, i) = inp.recDescent i
-            for i in 0..<newTree.len: newTree[i].shift(result.len)
+            for j in 0..<newTree.len: newTree[j].shift(result.len)
+            if inOp > 0:
+                result[prevOps[^1][0]].right = result.len + newTree.len
+                for j in 0..<prevOps.len:
+                    result[prevOps[j][0]].right = result.len + 1
+                    if i == prevOps[j][2]: prevOps.delete i
+                inOp += -1
+            lastTop = (result.len, newTree[0].left, newTree[0].right)
             result &= newTree
             continue
+        elif $$inp[i] in ops:
+            inOp += 1
+            ASTNode(kind : NkCall, val : !inp[i], left : lastTop[1], right : -1).pushInto(result, lastTop[0])
+            prevOps.add lastTop
+            for j in lastTop[0] + 1..<result.len:
+                result[j].left += -1
+                result[j].left = max(result[j].left, 0)
+                result[j].right += 1
+        else:
+            result.add ASTNode(kind : NkIdent, val : !inp[i], left : lastTop[0], right : result.len + 1)
+            if inOp > 0:
+                for j in 0..<prevOps.len:
+                    result[prevOps[j][0]].right = result.len + 1
+                    if i == prevOps[j][2]: prevOps.delete i
+                inOp += -1
+            lastTop = (i, result[^1].left, result[^1].right)
+        debugEcho result
         i += 1
+          
 
 # func parseCall(lex : seq[ASTNode], beg : int, inx : var int) : seq[(nType, string)] =
 #     # Assume beg opens at the call
@@ -141,9 +173,11 @@ func parse(inp : seq[Token]) : seq[ASTNode] =
 
 # func findCalls(lex : var seq[ASTNode], start : int) : seq[ASTNode] =
     # Assume start opens at a paren, then we should get a paren then
+let inp = readFile(commandLineParams()[0]).splitLines[5]
+echo inp
 echo "-"
 echo inp.partFile
 echo inp.partFile.tokenize().map(x => !x), inp.partFile.tokenize().map(x => !x).len
 print inp.partFile.tokenize().parse
-let tree = inp.partFile.tokenize().parse 
-echo tree.map(n => $n & &" : ({tree.find(n)} {n.left} {n.right}), ")
+let tree = inp.partFile.tokenize().parse
+echo tree
