@@ -1,5 +1,6 @@
 [,],(,){,}
  ,:,(,),[,],{,},\n,\r
  ,\n,\r
++,',-,/,*
 
-f(a, b) g(2, 3, f), h(f(g, a), g(b, c), 12, "White"), a(b(c, c, "12", d(f, g)), g(c, WHITE))
+fun(fun(a + b), funk)
