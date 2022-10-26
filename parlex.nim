@@ -47,7 +47,7 @@ func `$$`(n : Token) : char = n.val[0]
 #             depth += 1
 #             rights.add n[i].right
 
-proc print(n : ASTNode, d : int = 0) =
+proc print(n : ASTNode, d : int = -1) =
     if n.kind != NkRt:
         echo &"""{"    ".repeat(d)}{n.kind} {!n}"""
     for kid in n.kids:
@@ -143,7 +143,7 @@ proc pushInto[T](e : T, s : var seq[T], frm : int) =
 #     result[0][0].right = result[0].len
 #     return (result[0], i + 1)
 
-func parseExpr(rt : var ASTNode, inp : seq[Token]) : seq[ASTNode]
+func parseExpr(rt : var ASTNode, inp : seq[Token])
         
 # func parseCall_old(inp : seq[Token]) : seq[ASTNode] =
 #     # Again, assuming beg is the start of the call, seq[Token] also should end at the end
@@ -218,17 +218,18 @@ func parseCall(rt : var ASTNode, inp : seq[Token]) =
     args.add iMedArg
 
     for arg in args:
-        var pArg = rt[^1].parseExpr(arg)
-        rt.kids[^1].kids.add pArg
+        rt[^1].parseExpr(arg)
                     
 func parseExpr(rt : var ASTNode, inp : seq[Token]) =
     var i : int
-
+    var lastNode : ASTNode
+    
     while i in 0..<inp.len:
         if i + 1 < inp.len and $$inp[i + 1] == '(':
             var nestCount : int
             var slice = (i, -1)
-            
+
+            i += 2
             while nestCount >= 0:
                 if $$inp[i] == '(':
                     nestCount += 1
@@ -326,4 +327,5 @@ let inp = readFile(commandLineParams()[0]).splitLines[5]
 echo inp
 echo "-"
 echo inp.partFile.tokenize().map(x => !x), inp.partFile.tokenize().map(x => !x).len
-print rt.parseExpr(inp.partFile.tokenize())
+rt.parseExpr(inp.partFile.tokenize())
+print rt

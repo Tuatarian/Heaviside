@@ -3,4 +3,4 @@
  ,\n,\r
 +,',-,/,*
 
-fun(fun(a + b), funk)
+fun(fun(a, b, +), funk(fun(a, e, d(g))))
