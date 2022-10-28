@@ -1,12 +1,13 @@
 import os, strutils, sequtils, sugar, zero_functional, strformat
 
 const syms = readFile("./symbols.txt").splitLines
-
+l
 const lexStop = @[',', '\n'] & syms[1].split(',').toSeq.map(x => x[0])
 const whitespaces = syms[2].split(',').toSeq.map(x => x[0])
 const punc = ',' & syms[0].split(',').toSeq.map(x => x[0])
 const endWord = ',' & whitespaces
 const ops = syms[3].split(',').map(x => x[0])
+const prefOps = syms[4].split(',').map(x => x[0])
 
 type TKind = enum
     TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp
@@ -223,13 +224,19 @@ func parseCall(rt : var ASTNode, inp : seq[Token]) =
 func parseExpr(rt : var ASTNode, inp : seq[Token]) =
     var i : int
     var lastNode : ASTNode
+
+    # Parsing operators, what a pain
+    # We can pretty easily parse prefix operators as function calls
     
     while i in 0..<inp.len:
-        if i + 1 < inp.len and $$inp[i + 1] == '(':
+        if (i + 1 < inp.len and $$inp[i + 1] == '(') or inp[i].kind == TkOp:
             var nestCount : int
             var slice = (i, -1)
 
-            i += 2
+            if inp[i].kind == TkOp:
+                i += 1
+            else: i += 2
+            
             while nestCount >= 0:
                 if $$inp[i] == '(':
                     nestCount += 1
@@ -242,7 +249,7 @@ func parseExpr(rt : var ASTNode, inp : seq[Token]) =
         elif inp[i].kind == TkIdent:
             rt.kids.add ASTNode(kind : NkIdent, val : !inp[i], parentalUnit : rt)
         i += 1
-                        
+        
                     
 # func parseExpr_old(inp : seq[Token]) : seq[ASTNode] =
 #     var i : int
