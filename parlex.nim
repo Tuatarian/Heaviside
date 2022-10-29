@@ -168,7 +168,7 @@ proc parseExpr(rt : var ASTNode, inp : seq[Token]) =
         elif inp[i].kind == TkPrefOp:
             # The idea here is to append to the most recently appended node if we're in a prefix, and otherwise append to rt
             # The logic being @&a = @(&(a)), so @ should append to rt, & should append to @ and a should append to &
-            # This may get messy, but I am not sure if there's a better
+            # This may get messy, but I am not sure if there's a better way
             if inOp:
                 lastNode.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : lastNode)
                 lastNode = lastNode[^1]
@@ -179,6 +179,7 @@ proc parseExpr(rt : var ASTNode, inp : seq[Token]) =
         elif inp[i].kind == TkOp:
             rt.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : rt)
             rt[^2].reparentTo rt[^1]
+            print rt
             lastNode = rt[^1]
             inOp = true
         elif inp[i].kind == TkIdent:
@@ -193,6 +194,7 @@ proc parseExpr(rt : var ASTNode, inp : seq[Token]) =
         i += 1
 
 var rt = ASTNode(kind : NkRt)
+lastNode = rt
 let inp = readFile(commandLineParams()[0]).splitLines[6]
 echo inp
 echo "-"
