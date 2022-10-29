@@ -26,44 +26,15 @@ type ASTNode = ref object
 
 func `!`(n : ASTNode) : string = n.val
 func `!`(n : Token) : string = n.val
-
-# func `$`(n : ASTNode) : string = &"({n.kind} {!n} : ({n.left},{n.right}))"
   
 func `$$`(n : ASTNode) : char = n.val[0]
 func `$$`(n : Token) : char = n.val[0]
-
-# func shift(n : var ASTNode, i : SomeInteger) =
-#     n.left += i
-#     n.right += i
-
-# proc print(n : seq[ASTNode]) =
-#     var depth : int
-#     var rights : seq[int]
-#     for i in 0..<n.len:
-#         depth += -rights.count(i)
-#         for i in 0..<depth: stdout.write("    ")
-#         echo &"{n[i].kind} {!n[i]}"
-#         if n[i].kind == NkCall:
-#             depth += 1
-#             rights.add n[i].right
 
 proc print(n : ASTNode, d : int = -1) =
     if n.kind != NkRt:
         echo &"""{"    ".repeat(d)}{n.kind} {!n}"""
     for kid in n.kids:
         print(kid, d + 1)
-            
-# func debugPrint(n : seq[ASTNode]) =
-#     var depth : int
-#     var rights : seq[int]
-#     for i in 0..<n.len:
-#         depth += -rights.count(i)
-#         var preTab : string
-#         for i in 0..<depth: preTab &= "    "
-#         debugEcho &"{preTab}{n[i].kind} {!n[i]}"
-#         if n[i].kind == NkCall:
-#             depth += 1
-#             rights.add n[i].right
             
 proc partFile(inp : string) : seq[string] =
     var cWord : string
