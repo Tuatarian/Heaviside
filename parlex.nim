@@ -71,7 +71,8 @@ proc delete[T](s : var seq[T], r : Slice[Natural]) = ## Delete all items in a..b
     for i in 0..<r.len:
         s.delete(r[0])
 
-proc add(n : var ASTNode, n1 : ASTNode) = n.kids.add n1
+proc add(n : var ASTNode, n1 : ASTNode) =
+      n.kids.add n1
 
 template `[]`(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
 
@@ -80,6 +81,11 @@ proc pushInto[T](e : T, s : var seq[T], frm : int) =
     for i in frm + 1..<s.len:
         swap(s[frm], s[i])
 
+proc reparentTo(n : var ASTNode, p : var ASTNode) =
+    p.add n
+    n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
+    n.parentalUnit = p
+        
 #---------------------------#
 #    ACTUAL PARSING CODE    #
 #---------------------------#
@@ -96,7 +102,7 @@ proc parseCall(rt : var ASTNode, inp : seq[Token]) =
     # We can determine if the arg is surrounded by () by keeping track of a "nesting number", which will simply store how many ( deep we are
   
     # Rt is the parent of the call, so we just make a new kid for the call
-    rt.add ASTNode(kind : NkCall, val : !inp[0])
+    rt.add ASTNode(kind : NkCall, val : !inp[0], parentalUnit : rt)
     # This is rt.kids[^1], which is a ref, so we can mutate a passed version and not worry
 
     var nestCount : int
@@ -127,12 +133,17 @@ proc parseExpr(rt : var ASTNode, inp : seq[Token]) =
     var i : int
 
     # Parsing operators, what a pain
-    # We can pretty easily parse prefix operators as function calls
+    # We can pretty easily parse prefix operators (described below)
 
-    var inPrefix : bool
+    var inOp : bool
+
+    # If we're in an operator, we should add to lastNode instead of to rt
+    # The logic for doing this with a prefix operator is detailed below
+    # For infix operators, the reasoning is that after we parse the first arg and the operator, we'll end up in a place where we have a Call with val operator and kid first arg, and we need to append the second arg to it
+    # The call will be lastNode, and we should be appending the parsed version of the second arg to it 
     
     while i in 0..<inp.len:
-        if (i + 1 < inp.len and $$inp[i + 1] == '(') or inp[i].kind == TkOp:
+        if (i + 1 < inp.len and $$inp[i + 1] == '('):
             var nestCount : int
             var slice = (i, -1)
 
@@ -148,19 +159,32 @@ proc parseExpr(rt : var ASTNode, inp : seq[Token]) =
                 i += 1
             slice[1] = i - 1
 
-            rt.parseCall(inp[slice[0]..slice[1]])
+            if inOp:
+                var tmpLastNode = lastNode
+                tmpLastNode.parseCall(inp[slice[0]..slice[1]])
+                inOp = false
+            else:
+                rt.parseCall(inp[slice[0]..slice[1]])
         elif inp[i].kind == TkPrefOp:
-              if inPrefix:
-                  lastNode.add ASTNode(kind : NkCall, val : !inp[i])
-                  lastNode = lastNode[^1]
-              else:
-                  rt.add ASTNode(kind : NkCall, val : !inp[i])
-                  lastNode = rt[^1]
-                  inPrefix = true
+            # The idea here is to append to the most recently appended node if we're in a prefix, and otherwise append to rt
+            # The logic being @&a = @(&(a)), so @ should append to rt, & should append to @ and a should append to &
+            # This may get messy, but I am not sure if there's a better
+            if inOp:
+                lastNode.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : lastNode)
+                lastNode = lastNode[^1]
+            else:
+                rt.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : rt)
+                lastNode = rt[^1]
+                inOp = true
+        elif inp[i].kind == TkOp:
+            rt.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : rt)
+            rt[^2].reparentTo rt[^1]
+            lastNode = rt[^1]
+            inOp = true
         elif inp[i].kind == TkIdent:
-            if inPrefix:
-                inPrefix = false
-
+            if inOp:
+                inOp = false
+                
                 lastNode.add ASTNode(kind : NkIdent, val : !inp[i], parentalUnit : lastNode)
                 lastNode = lastNode[^1]
             else:

@@ -4,6 +4,4 @@
 +,',-,/,*
 !,$,@
 
-fun(fun(a, b, c(f)), funk(fun(@!a, e, d(g))))
-
-@!a
+a + !b(c)
