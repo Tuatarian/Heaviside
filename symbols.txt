@@ -2,5 +2,8 @@
  ,:,(,),[,],{,},\n,\r
  ,\n,\r
 +,',-,/,*
+!,$,@
 
-fun(fun(a, b, +), funk(fun(a, e, d(g))))
+fun(fun(a, b, c(f)), funk(fun(@!a, e, d(g))))
+
+@!a
