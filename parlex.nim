@@ -71,7 +71,7 @@ proc delete[T](s : var seq[T], r : Slice[Natural]) = ## Delete all items in a..b
     for i in 0..<r.len:
         s.delete(r[0])
 
-proc add(n : var ASTNode, n1 : ASTNode) =
+proc add(n : ASTNode, n1 : ASTNode) =
       n.kids.add n1
 
 template `[]`(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
@@ -81,7 +81,7 @@ proc pushInto[T](e : T, s : var seq[T], frm : int) =
     for i in frm + 1..<s.len:
         swap(s[frm], s[i])
 
-proc reparentTo(n : var ASTNode, p : var ASTNode) =
+proc reparentTo(n : ASTNode, p : ASTNode) =
     p.add n
     n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
     n.parentalUnit = p
@@ -93,9 +93,9 @@ proc reparentTo(n : var ASTNode, p : var ASTNode) =
 var lastNode : ASTNode # This is global state, should be updated as each node is added
 # The intention right now is to use this for infix operator parsing
 
-proc parseExpr(rt : var ASTNode, inp : seq[Token])
+proc parseExpr(rt : ASTNode, inp : seq[Token])
                     
-proc parseCall(rt : var ASTNode, inp : seq[Token]) =
+proc parseCall(rt : ASTNode, inp : seq[Token]) =
     # Again, assuming beg is the start of the call, seq[Token] also should end at the end
     # We want to count the number of arguements, but we can't use naive splitting by ',', since some args may be function calls like d(a, c)
     # I'm thinking to accomplish this by doing a short loop before the main parsing loop where we basically go through and split the inp at each ',' not surrounded by ()
@@ -129,7 +129,7 @@ proc parseCall(rt : var ASTNode, inp : seq[Token]) =
 
     lastNode = rt[^1]
                     
-proc parseExpr(rt : var ASTNode, inp : seq[Token]) =
+proc parseExpr(rt : ASTNode, inp : seq[Token]) =
     var i : int
 
     # Parsing operators, what a pain
