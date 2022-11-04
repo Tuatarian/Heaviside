@@ -1,12 +1,19 @@
-import os, strutils, sequtils, sugar, zero_functional, strformat
+import os, strutils, sequtils, sugar, zero_functional, strformat, tables, macros
 
 const syms = readFile("./symbols.txt").splitLines
 const whitespaces = syms[2].split(',').toSeq.map(x => x[0])
 const punc = ',' & syms[0].split(',').toSeq.map(x => x[0])
 const endWord = ',' & whitespaces
-const ops = syms[3].split(',').map(x => x[0])
 const prefOps = syms[4].split(',').map(x => x[0])
 const lexStop = (@[',', '\n'] & syms[1].split(',').toSeq.map(x => x[0])) & ops & prefOps
+
+const precLines = readfile("./precedence.txt").splitLines
+const ops = readFile("./precedence.txt").replace("\n", ",").split(",").toSeq
+
+var precs : Table[char, int]
+for i in 0..<precLines:
+    for o in precLines[i].split(',').toSeq:
+        precs[o] = i - precLines.len
 
 type TKind = enum
     TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp, TkPrefOp
@@ -193,6 +200,12 @@ proc parseExpr(rt : ASTNode, inp : seq[Token]) =
                 lastNode = rt[^1]
         i += 1
 
+proc parseExpr(rt : ASTNode, inp : seq[Token], precs : Table[String, int]) =
+    # We iterate over the expr, we split it into the operators and the not operators
+    # We process the args (so something like f(a) + g(b) gets processed correctly) then pass them to the operators
+    # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no operators, we give it to parseArg
+    # Eventually, we get to (possibly deeply nested) exprs which are arguement free, and the algorithm will converge
+        
 var rt = ASTNode(kind : NkRt)
 lastNode = rt
 let inp = readFile(commandLineParams()[0]).splitLines[6]
