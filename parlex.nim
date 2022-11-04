@@ -10,7 +10,7 @@ const lexStop = (@[',', '\n'] & syms[1].split(',').toSeq.map(x => x[0])) & ops &
 const precLines = readfile("./precedence.txt").splitLines
 const ops = readFile("./precedence.txt").replace("\n", ",").split(",").toSeq
 
-var precs : Table[char, int]
+var precs : Table[string, int]
 for i in 0..<precLines:
     for o in precLines[i].split(',').toSeq:
         precs[o] = i - precLines.len
@@ -200,11 +200,45 @@ proc parseExpr(rt : ASTNode, inp : seq[Token]) =
                 lastNode = rt[^1]
         i += 1
 
-proc parseExpr(rt : ASTNode, inp : seq[Token], precs : Table[String, int]) =
+proc parseExpr(rt : ASTNode, inp : seq[Token], precs : Table[string, int]) =
     # We iterate over the expr, we split it into the operators and the not operators
     # We process the args (so something like f(a) + g(b) gets processed correctly) then pass them to the operators
     # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no operators, we give it to parseArg
     # Eventually, we get to (possibly deeply nested) exprs which are arguement free, and the algorithm will converge
+
+    var args : seq[seq[Token]]
+    var imedArg : seq[Token]
+
+    # We have to do a similar thing with keeping count of nesting (since we're parsing the args recursively)
+    # To see why, think abuot f(a + b) * c
+    
+    for t in inp:
+        if $$t == '(':
+            nestCount += 1
+        elif $$t == ')':
+            nestCount += -1
+          
+        if nestCount == 0 and t.kind == TkOp:
+            args.add imedArg
+            args.add @[t]
+            imedArg = @[]
+        else:
+            imedArg.add t
+
+
+    var cPrec = 0
+    var cOps : seq[int]
+    for i in 0..<args.len:
+        if args[i].len == 1 and args[i][0].kind == TkOp:
+            if precs[!args[i][0]] >= cPrec:
+                cOps = @[i]
+                cPrec = precs[!args[i][0]]
+
+    for i in cOps:
+        rt.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : rt)
+        rt[^1].parseExpr(arg[i - 1], precs)
+        rt[^1].parseExpr(arg[i + 1], precs)
+            
         
 var rt = ASTNode(kind : NkRt)
 lastNode = rt
