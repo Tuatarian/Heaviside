@@ -1,22 +1,26 @@
-import os, strutils, sequtils, sugar, zero_functional, strformat, tables, macros
+import os, strutils, sequtils, sugar, zero_functional, strformat, tables
 
 const syms = readFile("./symbols.txt").splitLines
 const whitespaces = syms[2].split(',').toSeq.map(x => x[0])
 const punc = ',' & syms[0].split(',').toSeq.map(x => x[0])
 const endWord = ',' & whitespaces
 const prefOps = syms[4].split(',').map(x => x[0])
+const precLines = readfile("./precedence.txt").splitLines
+const ops = readFile("./precedence.txt").replace("\n", ",").split(",").toSeq.filter(x => x.len > 0).map(x => x[0])
+
+
+const precs = block:
+    var precs = initTable[string, int]()
+    for i in 0..<precLines.len:
+        for o in precLines[i].split(','):
+            if o.len >= 0:
+                precs[o] = precLines.len - i
+    precs
+
 const lexStop = (@[',', '\n'] & syms[1].split(',').toSeq.map(x => x[0])) & ops & prefOps
 
-const precLines = readfile("./precedence.txt").splitLines
-const ops = readFile("./precedence.txt").replace("\n", ",").split(",").toSeq
-
-var precs : Table[string, int]
-for i in 0..<precLines:
-    for o in precLines[i].split(',').toSeq:
-        precs[o] = i - precLines.len
-
 type TKind = enum
-    TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp, TkPrefOp
+    TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp, TkPrefOp, TkNull
 
 type NKind = enum
     NkIdent, NkCall, NkNumLit, NkStrLit, NkOp, NkRt
@@ -100,6 +104,7 @@ proc reparentTo(n : ASTNode, p : ASTNode) =
 var lastNode : ASTNode # This is global state, should be updated as each node is added
 # The intention right now is to use this for infix operator parsing
 
+proc parseArg(rt : ASTNode, inp : seq[Token]) # Forward decl, unfortunately this is necessary in nim for now
 proc parseExpr(rt : ASTNode, inp : seq[Token])
                     
 proc parseCall(rt : ASTNode, inp : seq[Token]) =
@@ -132,11 +137,11 @@ proc parseCall(rt : ASTNode, inp : seq[Token]) =
     args.add iMedArg
 
     for arg in args:
-        rt[^1].parseExpr(arg)
+        rt[^1].parseExpr(arg) # incase it has operators
 
     lastNode = rt[^1]
                     
-proc parseExpr(rt : ASTNode, inp : seq[Token]) =
+proc parseArg(rt : ASTNode, inp : seq[Token]) =
     var i : int
 
     # Parsing operators, what a pain
@@ -146,8 +151,7 @@ proc parseExpr(rt : ASTNode, inp : seq[Token]) =
 
     # If we're in an operator, we should add to lastNode instead of to rt
     # The logic for doing this with a prefix operator is detailed below
-    # For infix operators, the reasoning is that after we parse the first arg and the operator, we'll end up in a place where we have a Call with val operator and kid first arg, and we need to append the second arg to it
-    # The call will be lastNode, and we should be appending the parsed version of the second arg to it 
+    # This function no longer deals with infix operators 
     
     while i in 0..<inp.len:
         if (i + 1 < inp.len and $$inp[i + 1] == '('):
@@ -183,12 +187,6 @@ proc parseExpr(rt : ASTNode, inp : seq[Token]) =
                 rt.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : rt)
                 lastNode = rt[^1]
                 inOp = true
-        elif inp[i].kind == TkOp:
-            rt.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : rt)
-            rt[^2].reparentTo rt[^1]
-            print rt
-            lastNode = rt[^1]
-            inOp = true
         elif inp[i].kind == TkIdent:
             if inOp:
                 inOp = false
@@ -200,7 +198,7 @@ proc parseExpr(rt : ASTNode, inp : seq[Token]) =
                 lastNode = rt[^1]
         i += 1
 
-proc parseExpr(rt : ASTNode, inp : seq[Token], precs : Table[string, int]) =
+proc parseExpr(rt : ASTNode, inp : seq[Token]) =
     # We iterate over the expr, we split it into the operators and the not operators
     # We process the args (so something like f(a) + g(b) gets processed correctly) then pass them to the operators
     # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no operators, we give it to parseArg
@@ -209,9 +207,10 @@ proc parseExpr(rt : ASTNode, inp : seq[Token], precs : Table[string, int]) =
     var args : seq[seq[Token]]
     var imedArg : seq[Token]
 
-    # We have to do a similar thing with keeping count of nesting (since we're parsing the args recursively)
-    # To see why, think abuot f(a + b) * c
-    
+    # We have to do a similar thing with keeping count of nesting that parseCall does (since we're parsing the args recursively)
+    # To see why, think about f(a + b) * c
+
+    var nestCount : int
     for t in inp:
         if $$t == '(':
             nestCount += 1
@@ -224,21 +223,42 @@ proc parseExpr(rt : ASTNode, inp : seq[Token], precs : Table[string, int]) =
             imedArg = @[]
         else:
             imedArg.add t
+    args.add imedArg
 
 
+    # Search through args and find all the indices of operators with the highest precedence
     var cPrec = 0
     var cOps : seq[int]
     for i in 0..<args.len:
         if args[i].len == 1 and args[i][0].kind == TkOp:
-            if precs[!args[i][0]] >= cPrec:
+            if precs[!args[i][0]] == cPrec:
+                cOps.add i
+            elif precs[!args[i][0]] > cPrec:
                 cOps = @[i]
                 cPrec = precs[!args[i][0]]
-
-    for i in cOps:
-        rt.add ASTNode(kind : NkCall, val : !inp[i], parentalUnit : rt)
-        rt[^1].parseExpr(arg[i - 1], precs)
-        rt[^1].parseExpr(arg[i + 1], precs)
             
+
+    for i in 0..<cOps.len:
+        if i == 0:
+            rt.add ASTNode(kind : NkCall, val : !inp[cOps[i]], parentalUnit : rt)
+            rt[^1].parseExpr(args[cOps[i] - 1])
+            rt[^1].parseExpr(args[cOps[i] + 1])
+        else:
+            rt.add ASTNode(kind : NkCall, val : !inp[cOps[i]], parentalUnit : rt)          
+            if cOps[i] - 2 in cOps:
+                rt[^2].reparentTo rt[^1]
+                rt[^1].parseExpr(args[cOps[i] + 1])
+            else:
+                rt[^1].parseExpr(args[cOps[i] - 1])
+                rt[^1].parseExpr(args[cOps[i] + 1])              
+
+            
+    if cOps.len == 0:
+        if args.len > 1:
+            debugEcho args
+            assert args.len == 1
+        rt.parseArg args[0]
+    
         
 var rt = ASTNode(kind : NkRt)
 lastNode = rt
