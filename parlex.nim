@@ -78,9 +78,9 @@ proc tokenize(inp : seq[string]) : seq[Token] =
 #     for i in beg - 1..0:
 #         if s[i].kind.isNested
 
-proc delete[T](s : var seq[T], r : Slice[Natural]) = ## Delete all items in a..b
+proc delete[T, N](s : var seq[T], r : Slice[Natural]) = ## Delete all items in range
     for i in 0..<r.len:
-        s.delete(r[0])
+        s.delete(r.a)
 
 proc add(n : ASTNode, n1 : ASTNode) =
       n.kids.add n1
@@ -96,7 +96,10 @@ proc reparentTo(n : ASTNode, p : ASTNode) =
     p.add n
     n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
     n.parentalUnit = p
-        
+
+proc replace[T](s : var seq[T], r : Slice[Natural], t : T) = # replace all r elements with 1 element in position r[0]
+    s[r.a] = t
+    s.delete(Natural(r.a + 1)..r.b)
 #---------------------------#
 #    ACTUAL PARSING CODE    #
 #---------------------------#
@@ -227,38 +230,35 @@ proc parseExpr(rt : ASTNode, inp : seq[Token]) =
 
 
     # Search through args and find all the indices of operators with the highest precedence
-    var cPrec = 0
-    var cOps : seq[int]
+    var ops : seq[int]
     for i in 0..<args.len:
         if args[i].len == 1 and args[i][0].kind == TkOp:
-            if precs[!args[i][0]] == cPrec:
-                cOps.add i
-            elif precs[!args[i][0]] > cPrec:
-                cOps = @[i]
-                cPrec = precs[!args[i][0]]
-            
+            ops.add i
 
-    for i in 0..<cOps.len:
-        if i == 0:
-            rt.add ASTNode(kind : NkCall, val : !inp[cOps[i]], parentalUnit : rt)
-            rt[^1].parseExpr(args[cOps[i] - 1])
-            rt[^1].parseExpr(args[cOps[i] + 1])
+    var opSt : seq[seq[Token]]
+    var pfOut : seq[seq[Token]]
+    for arg in args:
+        if arg.len == 1 and arg[0].kind == TkOp:
+            while opSt.len >= 1 and precs[!opSt[^1][0]] > precs[!arg[0]]:
+                pfOut.add opSt[^1]
+                opSt.delete(opSt.len - 1)
+            opSt.add arg
         else:
-            rt.add ASTNode(kind : NkCall, val : !inp[cOps[i]], parentalUnit : rt)          
-            if cOps[i] - 2 in cOps:
-                rt[^2].reparentTo rt[^1]
-                rt[^1].parseExpr(args[cOps[i] + 1])
-            else:
-                rt[^1].parseExpr(args[cOps[i] - 1])
-                rt[^1].parseExpr(args[cOps[i] + 1])              
+            pfOut.add arg
 
-            
-    if cOps.len == 0:
-        if args.len > 1:
-            debugEcho args
-            assert args.len == 1
-        rt.parseArg args[0]
-    
+    for i in 1..opSt.len:
+        pfOut.add opSt[^i]
+
+    var localLastNode = rt
+    var argSt : seq[seq[Token]]
+    debugEcho pfOut.map(x => x.map(y => !y))
+    for i in 0..<pfOut.len:
+        if pfOut[i].len == 1 and pfOut[i][0].kind == TkOp:
+            rt.add ASTNode(kind : NkCall, val : !pfOut[i][0], parentalUnit : rt)
+            rt[^2].reparentTo rt[^1]
+            rt[^2].reparentTo rt[^1]
+        else:
+            rt.parseArg pfOut[i]
         
 var rt = ASTNode(kind : NkRt)
 lastNode = rt
