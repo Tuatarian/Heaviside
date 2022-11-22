@@ -20,20 +20,20 @@ const precs = block:
 const lexStop = (@[',', '\n'] & syms[1].split(',').toSeq.map(x => x[0])) & ops & prefOps
 
 type TKind = enum
-    TkNumLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp, TkPrefOp, TkNull
+    TkIntLit, TkFloatLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp, TkPrefOp, TkNull
 
-type NKind = enum
-    NkIdent, NkCall, NkNumLit, NkStrLit, NkOp, NkRt
+type NKind* = enum
+    NkIdent, NkCall, NkIntLit, NkFloatLit, NkStrLit, NkOp, NkRt
 
 type Token = object
     kind : TKind
     val : string
 
-type ASTNode = ref object
-    kind : NKind
-    val : string
-    kids : seq[ASTNode]
-    parentalUnit : ASTNode
+type ASTNode* = ref object
+    kind* : NKind
+    val* : string
+    kids* : seq[ASTNode]
+    parentalUnit* : ASTNode
 
 func `!`(n : ASTNode) : string = n.val
 func `!`(n : Token) : string = n.val
@@ -62,7 +62,10 @@ proc partFile(inp : string) : seq[string] =
 proc tokenize(inp : seq[string]) : seq[Token] =
     for i in 0..<inp.len:
         if inp[i][0] in '0'..'9':
-            result.add Token(kind : TkNumLit, val : inp[i])
+            if ',' in inp[i]:
+                result.add Token(kind : TkFloatLit, val : inp[i])
+            else:
+                result.add Token(kind : TkIntLit, val : inp[i])
         elif inp[i][0] == '\"' and inp[i][^1] == '\"':
             result.add Token(kind : TkStrLit, val : inp[i])
         elif inp[i][0] in punc:
@@ -100,6 +103,7 @@ proc reparentTo(n : ASTNode, p : ASTNode) =
 proc replace[T](s : var seq[T], r : Slice[Natural], t : T) = # replace all r elements with 1 element in position r[0]
     s[r.a] = t
     s.delete(Natural(r.a + 1)..r.b)
+    
 #---------------------------#
 #    ACTUAL PARSING CODE    #
 #---------------------------#
@@ -107,8 +111,8 @@ proc replace[T](s : var seq[T], r : Slice[Natural], t : T) = # replace all r ele
 var lastNode : ASTNode # This is global state, should be updated as each node is added
 # The intention right now is to use this for infix operator parsing
 
-proc parseArg(rt : ASTNode, inp : seq[Token]) # Forward decl, unfortunately this is necessary in nim for now
-proc parseExpr(rt : ASTNode, inp : seq[Token])
+proc parseArg*(rt : ASTNode, inp : seq[Token]) # Forward decl, unfortunately this is necessary in nim for now
+proc parseExpr*(rt : ASTNode, inp : seq[Token])
                     
 proc parseCall(rt : ASTNode, inp : seq[Token]) =
     # Again, assuming beg is the start of the call, seq[Token] also should end at the end
@@ -144,7 +148,7 @@ proc parseCall(rt : ASTNode, inp : seq[Token]) =
 
     lastNode = rt[^1]
                     
-proc parseArg(rt : ASTNode, inp : seq[Token]) =
+proc parseArg*(rt : ASTNode, inp : seq[Token]) =
     var i : int
 
     # Parsing operators, what a pain
@@ -199,9 +203,25 @@ proc parseArg(rt : ASTNode, inp : seq[Token]) =
             else:
                 rt.add ASTNode(kind : NkIdent, val : !inp[i], parentalUnit : rt)
                 lastNode = rt[^1]
+        elif inp[i].kind == TkFloatLit:
+            if inOp:
+                inOp = false
+                lastNode.add ASTNode(kind : NkFloatLit, val : !inp[i], parentalUnit : lastNode)
+                lastNode = lastNode[^1]
+            else:
+                rt.add ASTNode(kind : NkFloatLit, val : !inp[i], parentalUnit : rt)
+                lastNode = rt[^1]
+        elif inp[i].kind == TkIntLit:
+            if inOp:
+                inOp = false
+                lastNode.add ASTNode(kind : NkIntLit, val : !inp[i], parentalUnit : lastNode)
+                lastNode = lastNode[^1]
+            else:
+                rt.add ASTNode(kind : NkIntLit, val : !inp[i], parentalUnit : rt)
+                lastNode = rt[^1]
         i += 1
 
-proc parseExpr(rt : ASTNode, inp : seq[Token]) =
+proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     # We iterate over the expr, we split it into the operators and the not operators
     # We process the args (so something like f(a) + g(b) gets processed correctly) then pass them to the operators
     # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no operators, we give it to parseArg
@@ -262,9 +282,3 @@ proc parseExpr(rt : ASTNode, inp : seq[Token]) =
         
 var rt = ASTNode(kind : NkRt)
 lastNode = rt
-let inp = readFile(commandLineParams()[0]).splitLines[6]
-echo inp
-echo "-"
-echo inp.partFile.tokenize().map(x => !x), inp.partFile.tokenize().map(x => !x).len
-rt.parseExpr(inp.partFile.tokenize())
-print rt
