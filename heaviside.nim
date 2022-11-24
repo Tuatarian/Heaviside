@@ -57,32 +57,32 @@ func hvTimes(a, b : HvNum) : HvNum =
 
 #-------Building the Function Table-------#
 
-macro iterateAllProcs(t: typed) =
-  result = newStmtList()
-  result.add newNimNode(nnkPrefix)
-  result[0].add ident("@")
-  result[0].add newNimNode(nnkBracket)
-  var sq = result[0][^1] 
+macro iterateAllProcs(t: typed) : untyped =
+  result = newNimNode(nnkPrefix)
+  result.add ident("@")
+  result.add newNimNode(nnkBracket)
+  var sq = result[^1]
   case t.kind
   of nnkSym:
     let res = $t.getType[1]
     var args = "("
     for i in 2..<t.getType.len - 1:
       args &= &"{$t.getType[i]}, "
-    args &= &"{$t.getType[^1]}) "
-    sq.add ident(&"{$t}: {args} -> {res}")
+    args &= &"{$t.getType[^1]})"
+    sq.add newLit(&"{$t}: {args} -> {res}")
   of nnkOpenSymChoice, nnkClosedSymChoice:
     for x in t:
       let res = $x.getType[1]
       var args = "("
       for i in 2..<x.getType.len - 1:
-        args &= &"{$x.getType[i]}, "
-      args &= &"{$x.getType[^1]}) "
-      sq.add ident(&"{$t}: {args} -> {res}")
+        args &= &"{x.getType[i].repr}, "
+      args &= &"{x.getType[^1].repr}) "
+      sq.add newLit(&"{$x}: {args} -> {res}")
   else:
     error("Did not get a proc, probably a bug", t)
+  echo treeRepr result
 
-echo iterateAllProcs(find)
+echo iterateAllProcs(contains)
 
 #----------Tree Walking Code----------#
   

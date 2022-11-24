@@ -1,4 +1,4 @@
-import os, strutils, sequtils, sugar, zero_functional, strformat, tables
+import strutils, sequtils, sugar, zero_functional, strformat, tables
 
 const syms = readFile("./symbols.txt").splitLines
 const whitespaces = syms[2].split(',').toSeq.map(x => x[0])
@@ -7,7 +7,6 @@ const endWord = ',' & whitespaces
 const prefOps = syms[4].split(',').map(x => x[0])
 const precLines = readfile("./precedence.txt").splitLines
 const ops = readFile("./precedence.txt").replace("\n", ",").split(",").toSeq.filter(x => x.len > 0).map(x => x[0])
-
 
 const precs = block:
     var precs = initTable[string, int]()
