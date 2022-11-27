@@ -1,4 +1,4 @@
-import strutils, sequtils, sugar, zero_functional, strformat, parlex, macros
+import strutils, sequtils, tables, zero_functional, strformat, parlex, macros
 
 
 ## We're using an object variant here since I (obviously) don't want to amke the user decide whether a number should be a float or an int
@@ -15,6 +15,8 @@ type HvNum = object
 type HvExpr = ASTNode
 
 #-------Convenience funcs-------#
+
+func `$`(p : pointer) : string = "0x" & cast[int](p).toHex
 
 template makenum(b : int | float) : untyped =
     when b is int:
@@ -57,32 +59,67 @@ func hvTimes(a, b : HvNum) : HvNum =
 
 #-------Building the Function Table-------#
 
-macro iterateAllProcs(t: typed) : untyped =
-  result = newNimNode(nnkPrefix)
-  result.add ident("@")
-  result.add newNimNode(nnkBracket)
-  var sq = result[^1]
-  case t.kind
-  of nnkSym:
-    let res = $t.getType[1]
-    var args = "("
-    for i in 2..<t.getType.len - 1:
-      args &= &"{$t.getType[i]}, "
-    args &= &"{$t.getType[^1]})"
-    sq.add newLit(&"{$t}: {args} -> {res}")
-  of nnkOpenSymChoice, nnkClosedSymChoice:
-    for x in t:
-      let res = $x.getType[1]
-      var args = "("
-      for i in 2..<x.getType.len - 1:
-        args &= &"{x.getType[i].repr}, "
-      args &= &"{x.getType[^1].repr}) "
-      sq.add newLit(&"{$x}: {args} -> {res}")
-  else:
-    error("Did not get a proc, probably a bug", t)
-  echo treeRepr result
+macro bldFuncTable(t : typed) : untyped =
+    result = newNimNode(nnkTableConstr)
+    case t.kind
+    of nnkSym:
+        let res = repr t.getType[1]
+        var argL : seq[NimNode]
+        var args = "("
+        
+        for i in 2..<t.getType.len - 1:
+            args &= &"{repr t.getType[i]}, "
+            argL.add(newIdentDefs(ident("a" & $(i - 2)), ident(repr t.getType[i]), newEmptyNode()))
+        args &= &"{repr t.getType[^1]})"
+        argL.add(newIdentDefs(ident("a" & $(argL.len)), ident(repr t.getType[^1]), newEmptyNode()))
 
-echo iterateAllProcs(contains)
+        result.add newNimNode(nnkExprColonExpr).add(
+            newLit(&"{repr t}: {args} -> {res}"), newNimNode(nnkCommand).add(
+                ident("pointer"), newNimNode(nnkPar).add(
+                    newNimNode(nnkCall).add(
+                        newNimNode(nnkPar).add(
+                            newNimNode(nnkProcTy).add(
+                                newNimNode(nnkFormalParams).add(
+                                    ident(res))))))))
+        for arg in argL:
+            result[0][1][1][0][0][0][0].add arg
+        
+        result[0][1][1][0][0][0].add newNimNode(nnkPragma).add ident("nimcall")
+        result[0][1][1][0].add ident(repr t)
+
+    of nnkOpenSymChoice, nnkClosedSymChoice:
+        var counter : int
+        for x in t:
+            let res = repr x.getType[1]
+            var args = "("
+            var argL : seq[NimNode]
+
+            for i in 2..<x.getType.len - 1:
+                args &= &"{repr x.getType[i]}, "
+                argL.add(newIdentDefs(ident("a" & $(i - 2)), ident(repr x.getType[i])))
+            args &= &"{repr x.getType[^1]})"
+            argL.add(newIdentDefs(ident("a" & $(argL.len)), ident(repr x.getType[^1]), newEmptyNode()))
+
+            result.add newNimNode(nnkExprColonExpr).add(
+                newLit(&"{repr x}: {args} -> {res}"), newNimNode(nnkCommand).add(
+                    ident("pointer"), newNimNode(nnkPar).add(
+                        newNimNode(nnkCall).add(
+                            newNimNode(nnkPar).add(
+                                newNimNode(nnkProcTy).add(
+                                    newNimNode(nnkFormalParams).add(
+                                        ident(res))))))))
+
+            for arg in argL:
+                result[counter][1][1][0][0][0][0].add arg
+
+            result[counter][1][1][0][0][0].add newNimNode(nnkPragma).add ident("nimcall")
+            result[counter][1][1][0].add ident(repr x)
+            counter += 1
+    else:
+        error("Did not get a proc, probably a bug", t)
+    echo treeRepr result
+
+echo toTable bldFuncTable(contains)
 
 #----------Tree Walking Code----------#
   
