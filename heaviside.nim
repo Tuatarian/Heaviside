@@ -80,7 +80,7 @@ macro bldFuncTable(t : typed) : untyped =
                         newNimNode(nnkPar).add(
                             newNimNode(nnkProcTy).add(
                                 newNimNode(nnkFormalParams).add(
-                                    ident(res))))))))
+                                    ident(res))))))))s
         for arg in argL:
             result[0][1][1][0][0][0][0].add arg
         
