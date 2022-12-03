@@ -22,7 +22,7 @@ type TKind = enum
     TkIntLit, TkFloatLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp, TkPrefOp, TkNull
 
 type NKind* = enum
-    NkIdent, NkCall, NkIntLit, NkFloatLit, NkStrLit, NkOp, NkRt
+    NkIdent, NkCall, NkIntLit, NkFloatLit, NkStrLit, NkRt
 
 type Token = object
     kind : TKind
@@ -34,8 +34,8 @@ type ASTNode* = ref object
     kids* : seq[ASTNode]
     parentalUnit* : ASTNode
 
-func `!`(n : ASTNode) : string = n.val
-func `!`(n : Token) : string = n.val
+func `!`*(n : ASTNode) : string = n.val
+func `!`*(n : Token) : string = n.val
   
 func `$$`(n : ASTNode) : char = n.val[0]
 func `$$`(n : Token) : char = n.val[0]
