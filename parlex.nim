@@ -40,13 +40,17 @@ func `!`*(n : Token) : string = n.val
 func `$$`(n : ASTNode) : char = n.val[0]
 func `$$`(n : Token) : char = n.val[0]
 
-proc print(n : ASTNode, d : int = -1) =
+proc print*(n : ASTNode, d : int = -1) =
     if n.kind != NkRt:
         echo &"""{"    ".repeat(d)}{n.kind} {!n}"""
     for kid in n.kids:
         print(kid, d + 1)
-            
-proc partFile(inp : string) : seq[string] =
+
+proc strTree*(n : ASTNode, d: int = -1) : string =
+    if n.kind != NkRt:
+        result &= &"""{"    ".repeat(d)}{n.kind} {!n}"""
+
+proc partFile*(inp : string) : seq[string] =
     var cWord : string
     for c in inp:
         if c in lexStop:
@@ -58,7 +62,7 @@ proc partFile(inp : string) : seq[string] =
     if cWord.len > 0 and cWord[0] notin lexStop:
         result.add cWord
 
-proc tokenize(inp : seq[string]) : seq[Token] =
+proc tokenize*(inp : seq[string]) : seq[Token] =
     for i in 0..<inp.len:
         if inp[i][0] in '0'..'9':
             if ',' in inp[i]:
@@ -84,10 +88,10 @@ proc delete[T, N](s : var seq[T], r : Slice[Natural]) = ## Delete all items in r
     for i in 0..<r.len:
         s.delete(r.a)
 
-proc add(n : ASTNode, n1 : ASTNode) =
+proc add*(n : ASTNode, n1 : ASTNode) =
       n.kids.add n1
 
-template `[]`(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
+template `[]`*(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
 
 proc pushInto[T](e : T, s : var seq[T], frm : int) =
     s.add e

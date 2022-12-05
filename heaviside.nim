@@ -1,6 +1,5 @@
 import strutils, sequtils, tables, zero_functional, strformat, parlex, macros
 
-
 ## We're using an object variant here since I (obviously) don't want to make the user decide whether a number should be a float or an int in a CAS
 ## Also, we're going to require significantly different handling for ints than floats, for example 3/4 should not be converted to 0.75
 
@@ -19,7 +18,7 @@ type HvVal = object  # Using this for things who's types are unknown (like uneva
     of Num: nVal : HvNum
     of Expr: eVal : HvExpr
 
-#-------Convenience funcs-------#
+#-------Convenience funcs-------#)
 
 func `$`(p : pointer) : string = "0x" & cast[int](p).toHex
 
@@ -30,7 +29,7 @@ template makenum(b : int | float) : untyped =
         HvNum(isInt : false, fVal : b)
 
 template val(h : HvNum) : untyped =
-    when h.isInt:
+    if h.isInt:
         h.iVal
     else:
         h.fVal
@@ -39,11 +38,34 @@ func `-`(a : HvNum) : HvNum =
     if a.isInt: return makenum(-a.iVal)
     else: return makenum(-a.fVal)
 
+template makeval(h : HvNum) : untyped = HvVal(kind : Num, nVal : h)
+template makeval(e : HvExpr) : untyped = HvVal(kind : Expr, eVal : e)
+
 template val(v : HvVal) : untyped =
-    when v.kind == HvNum:
+    when v.kind == Num:
         v.nVal.val
-    elif v.kind == HvExpr:
+    elif v.kind == Expr:
         v.eVal 
+
+template apply(n: HvNum, act : untyped) : untyped =
+    if n.isInt:
+        act(n.iVal)
+    else:
+        act(n.fVal) 
+
+func `$`(n : HvNum) : string = 
+    if n.isInt: return $n.iVal
+    else: return $n.fVal
+
+func `$`(v : HvVal) : string =
+    case v.kind:
+    of Num: $v.nVal
+    of Expr: !v.eVal
+
+proc print(v : HvVal) =
+    case v.kind:
+    of Num: echo v.nVal
+    of Expr: print v.eVal
 
 #---------Tree Transformation Functions---------#
 
@@ -131,7 +153,6 @@ macro bldFuncTable(t : typed, s : static[string]) : untyped = ## This doesn't wo
             counter += 1
     else:
         error("Did not get a proc, probably a bug", t)
-    echo treeRepr result
 
 macro bldRetTable(t : typed, s : static[string]) : untyped =
     result = newNimNode(nnkPrefix)
@@ -184,6 +205,16 @@ var retTable : Table[string, string] = toTable(
     bldRetTable(hvTimes, "*")
 )
 
+func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr | HvNum =
+    case id:
+    of "+ HvNum HvNum ":
+        debugEcho hvPlus(args[0].nVal, args[1].nVal)
+        return hvPlus(args[0].nVal, args[1].nVal)
+    of "- HvNum HvNum ":
+        return hvMinus(args[0].nVal, args[1].nVal)
+    of "* HvNum HvNum ":
+        return hvTimes(args[0].nVal, args[1].nVal)
+
 
 #----------Tree Walking Code----------#
   
@@ -202,31 +233,36 @@ var retTable : Table[string, string] = toTable(
 
 proc evalAST(rt : ASTNode) : (HvVal, HvType) =
     if rt.kind == NkCall:
-        var paramTypes : seq[HvType]
         var params : seq[HvVal]
+        var paramTypes = !rt & " "
+
         for k in rt.kids:
             case k.kind:
             of NkIdent:
-                paramTypes.add Expr
+                paramTypes &= "HvExpr "
                 params.add HvVal(kind : Expr, eVal : HvExpr k)
             of NkIntLit:
-                paramTypes.add Num
+                paramTypes &= "HvNum "
                 params.add HvVal(kind : Num, nVal : makenum(parseInt !k))
             of NkFloatLit:
-                paramTypes.add Num
+                paramTypes &= "HvNum "
                 params.add HvVal(kind : Num, nVal : makenum(parseFloat !k))
             of NkCall:
                 let res = evalAST k
-                paramTypes.add res[1]
+                case res[1]:
+                of Num:
+                    paramTypes &= "HvNum "
+                of Expr:
+                    paramTypes &= "HvExpr "
                 params.add res[0]
             else:
                 echo "Unexpected Node Kind in tree evaluation"
                 writeStackTrace()
         
-        var args = !rt & " "
-        for pT in paramTypes:
-            case pT:
-            of Expr:
-                args &= &"HvExpr "
-            of Num:
-                args &= &"HvNum "
+        result[0] = makeval callMagicFunc(paramTypes, params)
+        result[1] = result[0].kind
+
+var rt = ASTNode(kind : NkRt)
+parseExpr(rt, tokenize partFile readFile("./symbols.txt").splitLines[6])
+print rt
+print evalAST(rt[0])[0]
