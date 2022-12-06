@@ -262,7 +262,7 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     var pfOut : seq[seq[Token]]
     for arg in args:
         if arg.len == 1 and arg[0].kind == TkOp:
-            while opSt.len >= 1 and precs[!opSt[^1][0]] > precs[!arg[0]]:
+            while opSt.len >= 1 and precs[!opSt[^1][0]] >= precs[!arg[0]]:
                 pfOut.add opSt[^1]
                 opSt.delete(opSt.len - 1)
             opSt.add arg
@@ -278,7 +278,7 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     for i in 0..<pfOut.len:
         if pfOut[i].len == 1 and pfOut[i][0].kind == TkOp:
             rt.add ASTNode(kind : NkCall, val : !pfOut[i][0], parentalUnit : rt)
-            rt[^2].reparentTo rt[^1]
+            rt[^3].reparentTo rt[^1]
             rt[^2].reparentTo rt[^1]
         else:
             rt.parseArg pfOut[i]

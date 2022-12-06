@@ -101,114 +101,113 @@ func hvTimes(a, b : HvNum) : HvNum =
 # We're (probably) gonna need 3 tables
 # These are all also going to be comptime. I will have to resolve user defined functions in some other way
 
-macro bldFuncTable(t : typed, s : static[string]) : untyped = ## This doesn't work with generics (can extend if needed, but for now I'll just avoid using generic in hvFuncs)
-    result = newNimNode(nnkPrefix)
-    result.add ident("@")
-    result.add newNimNode(nnkBracket)
-    case t.kind
-    of nnkSym:
-        let res = repr t.getType[1]
-        var argL : seq[NimNode]
-        var args : string
+# macro bldFuncTable(t : typed, s : static[string]) : untyped = ## This doesn't work with generics (can extend if needed, but for now I'll just avoid using generic in hvFuncs)
+#     result = newNimNode(nnkPrefix)
+#     result.add ident("@")
+#     result.add newNimNode(nnkBracket)
+#     case t.kind
+#     of nnkSym:
+#         let res = repr t.getType[1]
+#         var argL : seq[NimNode]
+#         var args : string
         
-        for i in 2..<t.getType.len:
-            args &= &"{repr t.getType[i]} "
-            argL.add(newIdentDefs(ident("a" & $(i - 2)), ident(repr t.getType[i]), newEmptyNode()))
+#         for i in 2..<t.getType.len:
+#             args &= &"{repr t.getType[i]} "
+#             argL.add(newIdentDefs(ident("a" & $(i - 2)), ident(repr t.getType[i]), newEmptyNode()))
 
-        result[1].add newNimNode(nnkTupleConstr).add(
-            newLit(&"{s} {args}"), newNimNode(nnkCommand).add(
-                ident("pointer"), newNimNode(nnkPar).add(
-                    newNimNode(nnkCall).add(
-                        newNimNode(nnkPar).add(
-                            newNimNode(nnkProcTy).add(
-                                newNimNode(nnkFormalParams).add(
-                                    ident(res))))))))
-        for arg in argL:
-            result[1][0][1][1][0][0][0][0].add arg
+#         result[1].add newNimNode(nnkTupleConstr).add(
+#             newLit(&"{s} {args}"), newNimNode(nnkCommand).add(
+#                 ident("pointer"), newNimNode(nnkPar).add(
+#                     newNimNode(nnkCall).add(
+#                         newNimNode(nnkPar).add(
+#                             newNimNode(nnkProcTy).add(
+#                                 newNimNode(nnkFormalParams).add(
+#                                     ident(res))))))))
+#         for arg in argL:
+#             result[1][0][1][1][0][0][0][0].add arg
         
-        result[1][0][1][1][0][0][0].add newNimNode(nnkPragma).add ident("nimcall")
-        result[1][0][1][1][0].add ident(repr t)
+#         result[1][0][1][1][0][0][0].add newNimNode(nnkPragma).add ident("nimcall")
+#         result[1][0][1][1][0].add ident(repr t)
 
-    of nnkOpenSymChoice, nnkClosedSymChoice:
-        var counter : int
-        for x in t:
-            let res = repr x.getType[1]
-            var args : string
+#     of nnkOpenSymChoice, nnkClosedSymChoice:
+#         var counter : int
+#         for x in t:
+#             let res = repr x.getType[1]
+#             var args : string
 
-            for i in 2..<x.getType.len:
-                    args &= &"{repr x.getType[i]} "
+#             for i in 2..<x.getType.len:
+#                     args &= &"{repr x.getType[i]} "
 
-            result[1].add newNimNode(nnkTupleConstr).add(
-                newLit(&"{s} {args}"), newNimNode(nnkCommand).add(
-                    ident("pointer"), newNimNode(nnkPar).add(
-                        newNimNode(nnkCall).add(
-                            newNimNode(nnkPar).add(
-                                newNimNode(nnkProcTy).add(
-                                    newNimNode(nnkFormalParams).add(
-                                        ident(res))))))))
+#             result[1].add newNimNode(nnkTupleConstr).add(
+#                 newLit(&"{s} {args}"), newNimNode(nnkCommand).add(
+#                     ident("pointer"), newNimNode(nnkPar).add(
+#                         newNimNode(nnkCall).add(
+#                             newNimNode(nnkPar).add(
+#                                 newNimNode(nnkProcTy).add(
+#                                     newNimNode(nnkFormalParams).add(
+#                                         ident(res))))))))
             
-            result[1][counter][1][1][0][0][0].add newNimNode(nnkPragma).add ident("nimcall")
-            result[1][counter][1][1][0].add ident(repr t)
+#             result[1][counter][1][1][0][0][0].add newNimNode(nnkPragma).add ident("nimcall")
+#             result[1][counter][1][1][0].add ident(repr t)
 
-            counter += 1
-    else:
-        error("Did not get a proc, probably a bug", t)
+#             counter += 1
+#     else:
+#         error("Did not get a proc, probably a bug", t)
 
-macro bldRetTable(t : typed, s : static[string]) : untyped =
-    result = newNimNode(nnkPrefix)
-    result.add ident("@")
-    result.add newNimNode(nnkBracket)
-    case t.kind
-    of nnkSym:
-        let res = repr t.getType[1]
-        var args : string
+# macro bldRetTable(t : typed, s : static[string]) : untyped =
+#     result = newNimNode(nnkPrefix)
+#     result.add ident("@")
+#     result.add newNimNode(nnkBracket)
+#     case t.kind
+#     of nnkSym:
+#         let res = repr t.getType[1]
+#         var args : string
         
-        for i in 2..<t.getType.len:
-            args &= &"{repr t.getType[i]} "
+#         for i in 2..<t.getType.len:
+#             args &= &"{repr t.getType[i]} "
 
-        result[1].add newNimNode(nnkTupleConstr).add(
-            newLit(&"{s} {args}"), newLit(&"{s} {res} {args}"))
+#         result[1].add newNimNode(nnkTupleConstr).add(
+#             newLit(&"{s} {args}"), newLit(&"{s} {res} {args}"))
 
-    of nnkOpenSymChoice, nnkClosedSymChoice:
-        for x in t:
-            let res = repr x.getType[1]
-            var args : string
+#     of nnkOpenSymChoice, nnkClosedSymChoice:
+#         for x in t:
+#             let res = repr x.getType[1]
+#             var args : string
 
-            for i in 2..<x.getType.len:
-                args &= &"{repr x.getType[i]} "
+#             for i in 2..<x.getType.len:
+#                 args &= &"{repr x.getType[i]} "
 
-            result[1].add newNimNode(nnkTupleConstr).add(
-                newLit(&"{s} {args}"), newLit(&"{s} {res} {args}"))
-    else:
-        error("Did not get a proc, probably a bug", t)
+#             result[1].add newNimNode(nnkTupleConstr).add(
+#                 newLit(&"{s} {args}"), newLit(&"{s} {res} {args}"))
+#     else:
+#         error("Did not get a proc, probably a bug", t)
 
-macro retreieveProc(desc : seq[string]) : untyped =
-    result = newNimNode(nnkCall).add(
-        newNimNode(nnkCast).add(
-            newNimNode(nnkProcTy).add(
-                newNimNode(nnkFormalParams).add(
-                    ident($desc[0])
-                ), newNimNode(nnkPragma).add(ident("nimcall"))
-            )
-        )
-    )
+# macro retreieveProc(desc : seq[string]) : untyped =
+#     result = newNimNode(nnkCall).add(
+#         newNimNode(nnkCast).add(
+#             newNimNode(nnkProcTy).add(
+#                 newNimNode(nnkFormalParams).add(
+#                     ident($desc[0])
+#                 ), newNimNode(nnkPragma).add(ident("nimcall"))
+#             )
+#         )
+#     )
 
-var fnTable : Table[string, pointer] = toTable(
-    bldFuncTable(hvMinus, "-") &
-    bldFuncTable(hvPlus, "+") &
-    bldFuncTable(hvTimes, "*")
-)
+# var fnTable : Table[string, pointer] = toTable(
+#     bldFuncTable(hvMinus, "-") &
+#     bldFuncTable(hvPlus, "+") &
+#     bldFuncTable(hvTimes, "*")
+# )
 
-var retTable : Table[string, string] = toTable(
-    bldRetTable(hvMinus, "-") &
-    bldRetTable(hvPlus, "+") &
-    bldRetTable(hvTimes, "*")
-)
+# var retTable : Table[string, string] = toTable(
+#     bldRetTable(hvMinus, "-") &
+#     bldRetTable(hvPlus, "+") &
+#     bldRetTable(hvTimes, "*")
+# )
 
 func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr | HvNum =
     case id:
     of "+ HvNum HvNum ":
-        debugEcho hvPlus(args[0].nVal, args[1].nVal)
         return hvPlus(args[0].nVal, args[1].nVal)
     of "- HvNum HvNum ":
         return hvMinus(args[0].nVal, args[1].nVal)
