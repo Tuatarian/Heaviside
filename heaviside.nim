@@ -115,9 +115,24 @@ func hvPlus(a, b : HvNum) : HvExpr =
     elif b.isInt:
         return makeExpr makenum(b.iVal.float + a.fVal)
     return makeExpr makenum(b.fVal + a.fVal)
-# This doesn't handle exprs, we'll need to do that differently
+# The above doesn't handle exprs, we'll need to do that differently
+
+func hvPlus(a : HvNum, e : HvExpr) : HvExpr =
+    result = HvExpr(kind : NkCall, val : "+")
+    result.add makeExpr(a, result)
+    e.reparentTo result
+
+func hvPlus(e, e1 : HvExpr) : HvExpr =
+    result = HvExpr(kind : NkCall, val : "+")
+    reparentTo(e, e1, result)
 
 func hvMinus(a, b : HvNum) : HvExpr {.inline.} = hvPlus(a, -b)
+
+func hvMinus(l, r : HvExpr) : HvExpr =
+    if l === r:
+        return makeExpr makenum 0
+    else:
+        return hvPlus(l, r)
 
 func hvTimes(a, b : HvNum) : HvExpr =
     if a.isInt and b.isInt:
@@ -138,15 +153,6 @@ func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(e, a) # multiplication is
 func hvTimes(e, e1 : HvExpr) : HvExpr =
     result = HvExpr(kind : NkCall, val : "*")
     reparentTo(e, e1, result)
-
-func hvPlus(e, e1 : HvExpr) : HvExpr =
-    result = HvExpr(kind : NkCall, val : "+")
-    reparentTo(e, e1, result)
-
-func hvPlus(a : HvNum, e : HvExpr) : HvExpr =
-    result = HvExpr(kind : NkCall, val : "+")
-    result.add makeExpr(a, result)
-    e.reparentTo result
 
 func hvPlus(e : HvExpr, a : HvNum) : HvExpr {.inline.} = hvPlus(a, e) # addition is commutative
 
@@ -189,7 +195,7 @@ func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     # The type is the type of the node (NumLit or Expr)
     # This might move onto the tree itself at some point in the future
 
-proc evalAST(rt : ASTNode) : (HvVal, HvType) =
+proc evalTree(rt : ASTNode) : (HvVal, HvType) =
     if rt.kind == NkCall:
         var params : seq[HvVal]
         var paramTypes = !rt & " "
@@ -206,7 +212,7 @@ proc evalAST(rt : ASTNode) : (HvVal, HvType) =
                 paramTypes &= "HvNum "
                 params.add HvVal(kind : Num, nVal : makenum(parseFloat !k))
             of NkCall:
-                let res = evalAST k
+                let res = evalTree k
                 case res[1]:
                 of Num:
                     paramTypes &= "HvNum "
@@ -222,5 +228,5 @@ proc evalAST(rt : ASTNode) : (HvVal, HvType) =
 
 var rt = strParse readFile("./symbols.txt").splitLines[6]
 print rt
-print evalAST(rt[0])[0]
+print evalTree(rt[0])[0]
 echo likeTerms(strParse("6 * 2")[0], strParse("1 * 8")[0])

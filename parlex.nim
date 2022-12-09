@@ -98,10 +98,13 @@ proc pushInto[T](e : T, s : var seq[T], frm : int) =
     for i in frm + 1..<s.len:
         swap(s[frm], s[i])
 
-proc reparentTo(n : ASTNode, p : ASTNode) =
+proc reparentTo*(n : ASTNode, p : ASTNode) =
     p.add n
-    n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
+    if n.parentalUnit != nil: n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
     n.parentalUnit = p
+
+proc reparentTo*(nodes : varargs[ASTNode], p : ASTNode) =
+    for n in nodes: n.reparentTo(p)
 
 proc replace[T](s : var seq[T], r : Slice[Natural], t : T) = # replace all r elements with 1 element in position r[0]
     s[r.a] = t
@@ -282,6 +285,10 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
             rt[^2].reparentTo rt[^1]
         else:
             rt.parseArg pfOut[i]
-        
+
+proc strParse*(inp : string) : ASTNode =
+    result = ASTNode(kind : NkRt)
+    parseExpr(result, tokenize partFile inp) 
+
 var rt = ASTNode(kind : NkRt)
 lastNode = rt
