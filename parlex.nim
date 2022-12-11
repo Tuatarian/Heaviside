@@ -88,8 +88,13 @@ proc delete[T, N](s : var seq[T], r : Slice[Natural]) = ## Delete all items in r
     for i in 0..<r.len:
         s.delete(r.a)
 
-proc add*(n : ASTNode, n1 : ASTNode) =
-      n.kids.add n1
+proc add*(n : ASTNode, n1 : ASTNode) : ASTNode {.discardable.} =
+    n.kids.add n1
+    return n
+
+proc add*(n : ASTNode, nodes : varargs[ASTNode]) : ASTNode =
+    for node in nodes: n.add node
+    return n
 
 template `[]`*(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
 

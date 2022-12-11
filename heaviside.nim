@@ -28,11 +28,9 @@ template makenum(b : int | float) : untyped =
     else:
         HvNum(isInt : false, fVal : b)
 
-template val(h : HvNum) : untyped =
-    if h.isInt:
-        h.iVal
-    else:
-        h.fVal
+func nType(n : HvNum) : NKind =
+    if n.isInt: return NkIntLit
+    else: return NkFloatLit
 
 func `-`(a : HvNum) : HvNum =
     if a.isInt: return makenum(-a.iVal)
@@ -72,6 +70,9 @@ func makeExpr(a : HvNum, p : ASTNode = nil) : HvExpr =
         return HvExpr(kind : NkIntLit, val : $a, parentalUnit : p)
     else:
         return HvExpr(kind : NkFloatLit, val : $a, parentalUnit : p)
+
+func makeExpr(k : NKind, v : string, p : HvExpr = nil, childs : seq[HvExpr] = @[]) : HvExpr {.inline.} =
+    return HvExpr(kind : k, kids : childs, parentalUnit : p, val : v)
 
 func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same as checking if an expression is equal to another
     if e.kind == e1.kind and e.val == e1.val and e.kids.len == e1.kids.len:
@@ -134,6 +135,13 @@ func hvMinus(l, r : HvExpr) : HvExpr =
     else:
         return hvPlus(l, r)
 
+func hvMinus(a : HvNum, e : HvExpr) : HvExpr =
+    result = makeExpr(NkCall, "-")
+    result.add makeExpr(nType a, a.apply(`$`))
+    e.reparentTo result
+
+func hvMinus(e : HvExpr, a : HvNum) : HvExpr = hvMinus(-a, makeExpr(NkCall, "-").add(makeExpr makenum 0, e))
+
 func hvTimes(a, b : HvNum) : HvExpr =
     if a.isInt and b.isInt:
         return makeExpr makenum(a.iVal * b.iVal)
@@ -169,6 +177,13 @@ func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
             return hvPlus(args[0].eVal, args[1].nVal)
     of "- HvNum HvNum ":
         return hvMinus(args[0].nVal, args[1].nVal)
+    of "- HvExpr HvExpr ":
+        return hvMinus(args[0].eVal, args[0].eVal)
+    of "- HvExpr HvNum ", "- HvNum HvExpr ":
+        if args[0].kind == Num:
+            return hvMinus(args[0].nVal, args[1].eVal)
+        else:
+            return hvMinus(args[0].eVal, args[1].nVal)
     of "* HvNum HvNum ":
         return hvTimes(args[0].nVal, args[1].nVal)
     of "* HvNum HvExpr ", "* HvExpr HvNum ":
@@ -228,5 +243,6 @@ proc evalTree(rt : ASTNode) : (HvVal, HvType) =
 
 var rt = strParse readFile("./symbols.txt").splitLines[6]
 print rt
+echo "/============================/"
 print evalTree(rt[0])[0]
-echo likeTerms(strParse("6 * 2")[0], strParse("1 * 8")[0])
+echo likeTerms(strParse("ya * 8")[0], strParse("ay * 8")[0])
