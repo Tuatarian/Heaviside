@@ -24,17 +24,36 @@ type TKind = enum
 type NKind* = enum
     NkIdent, NkCall, NkIntLit, NkFloatLit, NkStrLit, NkRt
 
+const numerics* = [NkIntLit, NkFloatLit]
+
 type Token = object
     kind : TKind
     val : string
 
+type HvNum* = object
+    case isInt* : bool
+    of true: iVal* : int
+    of false: fVal* : float
+
 type ASTNode* = ref object
-    kind* : NKind
-    val* : string
+    case kind* : NKind
+    of NkIntLit, NkFloatLit:
+        nVal* : HvNum
+    else:
+        val* : string
     kids* : seq[ASTNode]
     parentalUnit* : ASTNode
 
-func `!`*(n : ASTNode) : string = n.val
+
+func `$`*(n : HvNum) : string = 
+    if n.isInt: return $n.iVal
+    else: return $n.fVal
+
+func `!`*(n : ASTNode) : string = 
+    if n.kind in numerics:
+        return $n.nVal
+    else:
+        return n.val
 func `!`*(n : Token) : string = n.val
   
 func `$$`(n : ASTNode) : char = n.val[0]
@@ -49,6 +68,16 @@ proc print*(n : ASTNode, d : int = -1) =
 proc strTree*(n : ASTNode, d: int = -1) : string =
     if n.kind != NkRt:
         result &= &"""{"    ".repeat(d)}{n.kind} {!n}"""
+
+template makenum*(b : int | float) : untyped =
+    when b is int:
+        HvNum(isInt : true, iVal : b)
+    else:
+        HvNum(isInt : false, fVal : b)
+
+
+
+
 
 proc partFile*(inp : string) : seq[string] =
     var cWord : string
@@ -217,18 +246,18 @@ proc parseArg*(rt : ASTNode, inp : seq[Token]) =
         elif inp[i].kind == TkFloatLit:
             if inOp:
                 inOp = false
-                lastNode.add ASTNode(kind : NkFloatLit, val : !inp[i], parentalUnit : lastNode)
+                lastNode.add ASTNode(kind : NkFloatLit, nval : makenum parseFloat !inp[i], parentalUnit : lastNode)
                 lastNode = lastNode[^1]
             else:
-                rt.add ASTNode(kind : NkFloatLit, val : !inp[i], parentalUnit : rt)
+                rt.add ASTNode(kind : NkFloatLit, nval : makenum parseFloat !inp[i], parentalUnit : rt)
                 lastNode = rt[^1]
         elif inp[i].kind == TkIntLit:
             if inOp:
                 inOp = false
-                lastNode.add ASTNode(kind : NkIntLit, val : !inp[i], parentalUnit : lastNode)
+                lastNode.add ASTNode(kind : NkIntLit, nVal : makenum parseInt !inp[i], parentalUnit : lastNode)
                 lastNode = lastNode[^1]
             else:
-                rt.add ASTNode(kind : NkIntLit, val : !inp[i], parentalUnit : rt)
+                rt.add ASTNode(kind : NkIntLit, nVal : makenum parseInt !inp[i], parentalUnit : rt)
                 lastNode = rt[^1]
         i += 1
 

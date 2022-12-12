@@ -6,11 +6,6 @@ import strutils, sequtils, tables, zero_functional, strformat, parlex, macros, s
 type HvType = enum
     Num, Expr
 
-type HvNum = object
-    case isInt : bool
-    of true: iVal : int
-    of false: fVal : float
-
 type HvExpr = ASTNode
 
 type HvVal = object  # Using this for things who's types are unknown (like unevaluated parameters)
@@ -21,12 +16,6 @@ type HvVal = object  # Using this for things who's types are unknown (like uneva
 #-------Convenience funcs-------#)
 
 func `$`(p : pointer) : string = "0x" & cast[int](p).toHex
-
-template makenum(b : int | float) : untyped =
-    when b is int:
-        HvNum(isInt : true, iVal : b)
-    else:
-        HvNum(isInt : false, fVal : b)
 
 func nType(n : HvNum) : NKind =
     if n.isInt: return NkIntLit
@@ -51,10 +40,6 @@ template apply(n: HvNum, act : untyped) : untyped =
     else:
         act(n.fVal) 
 
-func `$`(n : HvNum) : string = 
-    if n.isInt: return $n.iVal
-    else: return $n.fVal
-
 func `$`(v : HvVal) : string =
     case v.kind:
     of Num: $v.nVal
@@ -67,12 +52,16 @@ proc print(v : HvVal) =
 
 func makeExpr(a : HvNum, p : ASTNode = nil) : HvExpr = 
     if a.isInt:
-        return HvExpr(kind : NkIntLit, val : $a, parentalUnit : p)
+        return HvExpr(kind : NkIntLit, nVal : a, parentalUnit : p)
     else:
-        return HvExpr(kind : NkFloatLit, val : $a, parentalUnit : p)
+        return HvExpr(kind : NkFloatLit, nVal : a, parentalUnit : p)
 
-func makeExpr(k : NKind, v : string, p : HvExpr = nil, childs : seq[HvExpr] = @[]) : HvExpr {.inline.} =
-    return HvExpr(kind : k, kids : childs, parentalUnit : p, val : v)
+func makeExpr(k : NKind, v : string = "", n : HvNum = makenum 0, p : HvExpr = nil, childs : seq[HvExpr] = @[]) : HvExpr {.inline.} =
+    result = HvExpr(kind : k, kids : childs, parentalUnit : p)
+    if result.kind in numerics:
+        result.nVal = n
+    else:
+        result.val = v
 
 func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same as checking if an expression is equal to another
     if e.kind == e1.kind and e.val == e1.val and e.kids.len == e1.kids.len:
@@ -136,8 +125,7 @@ func hvMinus(l, r : HvExpr) : HvExpr =
         return hvPlus(l, r)
 
 func hvMinus(a : HvNum, e : HvExpr) : HvExpr =
-    result = makeExpr(NkCall, "-")
-    result.add makeExpr(nType a, a.apply(`$`))
+    result = makeExpr(NkCall, "-").add makeExpr(a, result)
     e.reparentTo result
 
 func hvMinus(e : HvExpr, a : HvNum) : HvExpr = hvMinus(-a, makeExpr(NkCall, "-").add(makeExpr makenum 0, e))
@@ -169,7 +157,7 @@ func hvPlus(e : HvExpr, a : HvNum) : HvExpr {.inline.} = hvPlus(a, e) # addition
 func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     case id:
     of "+ HvNum HvNum ":
-        return hvPlus(args[0].nVal, args[0].nVal)
+        return hvPlus(args[0].nVal, args[1].nVal)
     of "+ HvExpr HvNum ", "+ HvNum, HvExpr ":
         if args[0].kind == Num:
             return hvPlus(args[0].nVal, args[1].eVal)
@@ -178,7 +166,7 @@ func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     of "- HvNum HvNum ":
         return hvMinus(args[0].nVal, args[1].nVal)
     of "- HvExpr HvExpr ":
-        return hvMinus(args[0].eVal, args[0].eVal)
+        return hvMinus(args[0].eVal, args[1].eVal)
     of "- HvExpr HvNum ", "- HvNum HvExpr ":
         if args[0].kind == Num:
             return hvMinus(args[0].nVal, args[1].eVal)
@@ -222,23 +210,26 @@ proc evalTree(rt : ASTNode) : (HvVal, HvType) =
                 params.add HvVal(kind : Expr, eVal : HvExpr k)
             of NkIntLit:
                 paramTypes &= "HvNum "
-                params.add HvVal(kind : Num, nVal : makenum(parseInt !k))
+                params.add HvVal(kind : Num, nVal : k.nVal)
             of NkFloatLit:
                 paramTypes &= "HvNum "
-                params.add HvVal(kind : Num, nVal : makenum(parseFloat !k))
+                params.add HvVal(kind : Num, nVal : k.nVal)
             of NkCall:
-                let res = evalTree k
-                case res[1]:
-                of Num:
+                var res = evalTree k
+                if res[0].eVal.kind in numerics:
+                    params.add makeval res[0].eVal.nVal
                     paramTypes &= "HvNum "
-                of Expr:
+                else:
                     paramTypes &= "HvExpr "
-                params.add res[0]
+                    params.add res[0]
             else:
                 echo "Unexpected Node Kind in tree evaluation"
                 writeStackTrace()
         
         result[0] = makeval callMagicFunc(paramTypes, params)
+        print result[0]
+        debugEcho (paramTypes, params)
+        echo "~~>"
         result[1] = result[0].kind
 
 var rt = strParse readFile("./symbols.txt").splitLines[6]
