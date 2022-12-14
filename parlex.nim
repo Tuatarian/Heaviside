@@ -117,12 +117,17 @@ proc delete[T, N](s : var seq[T], r : Slice[Natural]) = ## Delete all items in r
     for i in 0..<r.len:
         s.delete(r.a)
 
-proc add*(n : ASTNode, n1 : ASTNode) : ASTNode {.discardable.} =
+proc add*(n : ASTNode, n1 : ASTNode, setPar : bool = true) : ASTNode {.discardable.} =
     n.kids.add n1
+    if setPar: n1.parentalUnit = n
     return n
 
 proc add*(n : ASTNode, nodes : varargs[ASTNode]) : ASTNode =
-    for node in nodes: n.add node
+    for node in nodes: n.add(node)
+    return n
+
+proc add*(n : ASTNode, nodes : varargs[ASTNode], setPars : bool) : ASTNode =
+    for node in nodes: n.add(node, setPars)
     return n
 
 template `[]`*(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
@@ -133,7 +138,7 @@ proc pushInto[T](e : T, s : var seq[T], frm : int) =
         swap(s[frm], s[i])
 
 proc reparentTo*(n : ASTNode, p : ASTNode) =
-    p.add n
+    p.add(n, false)
     if n.parentalUnit != nil: n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
     n.parentalUnit = p
 
