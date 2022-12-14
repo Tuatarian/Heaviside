@@ -1,4 +1,4 @@
-import strutils, sequtils, tables, zero_functional, strformat, parlex, macros, sugar, typeinfo
+import strutils, sequtils, tables, zero_functional, strformat, parlex, macros, math
 
 ## We're using an object variant here since I (obviously) don't want to make the user decide whether a number should be a float or an int in a CAS
 ## Also, we're going to require significantly different handling for ints than floats, for example 3/4 should not be converted to 0.75
@@ -63,12 +63,29 @@ func makeExpr(k : NKind, v : string = "", n : HvNum = makenum 0, p : HvExpr = ni
     else:
         result.val = v
 
+func makeExpr(n : int | float) : HvExpr = makeExpr makenum n
+
+func `==`(a, b : HvNum) : bool =
+    if a.isInt:
+        if b.isInt:
+            return a.iVal == b.iVal
+        let (bi, bf) = splitDecimal b.fVal
+        return bf.trunc.almostEqual(0.0) and bi.int == a.iVal
+    else:
+        if b.isInt:
+            let (ai, af) = splitDecimal a.fVal
+            return ai.int == b.iVal and af.almostEqual 0.0
+        return b.fVal.almostEqual a.fVal
+
 func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same as checking if an expression is equal to another
-    if e.kind == e1.kind and e.val == e1.val and e.kids.len == e1.kids.len:
-        for i in 0..<e.kids.len:
-            if not (e[i] === e1[i]):
-                return false
-        return true
+    if e.kind == e1.kind:
+        if e.kind in numerics:
+            return e.nVal == e1.nVal
+        elif e.val == e1.val and e.kids.len == e1.kids.len:
+            for i in 0..<e.kids.len:
+                if not (e[i] === e1[i]):
+                    return false
+            return true
     return false
 
 #---------Tree Transformation Functions---------#
@@ -94,9 +111,48 @@ func likeTerms(e, e1 : HvExpr) : bool =
 #-------HvFuncs-------#
 # We'll prefix the versions of functions used by heaviside with hv to avoid confusion, so `/` (division) will be hvDiv, etc
 
-# Also, to make my life easier, we'll overload everything so that I can use the same syntax for casting down the line
+# Also, to maintain sanity, also since it's just objectively a good idea, we'll overload definitions of different versions of the same operation
 
-# Perhaps the sum function should be different, maybe variadic, so I'll call the `+` operator as hvPlus for now
+func hvTimes(a, b : HvNum) : HvExpr =
+    if a == makenum 0:
+        return makeExpr 0
+    elif b == makenum 0:
+        return makeExpr 0
+    elif a == makenum 1:
+        return makeExpr b
+    elif b == makenum 1:
+        return makeExpr a
+
+    if a.isInt and b.isInt:
+        return makeExpr makenum(a.iVal * b.iVal)
+    elif a.isInt:
+        return makeExpr makenum(a.iVal.float * b.fVal)
+    elif b.isInt:
+        return makeExpr makenum(a.fVal * a.iVal.float)
+    return makeExpr makenum(a.fVal * b.fVal)
+
+func hvTimes(e : HvExpr, a : HvNum) : HvExpr =
+    if a == makenum 0:
+        return makeExpr 0
+    elif a == makenum 1:
+        return e
+
+    result = HvExpr(kind : NkCall, val : "*")
+    result.add makeExpr(a, result)
+    e.reparentTo result
+
+func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(e, a) # multiplication is commutative
+
+func hvTimes(e, e1 : HvExpr) : HvExpr =
+    if e.kind in numerics:
+        return hvTimes(e.nVal, e1)
+    elif e1.kind in numerics:
+        return hvTimes(e1, e.nVal)
+
+    result = HvExpr(kind : NkCall, val : "*")
+    reparentTo(e, e1, result)
+
+# Perhaps the sum function should be different, maybe variadic, so I'll call the `+` operator hvPlus for now
 func hvPlus(a, b : HvNum) : HvExpr =
     if a.isInt and b.isInt:
         return makeExpr makenum(a.iVal + b.iVal)
@@ -113,9 +169,13 @@ func hvPlus(a : HvNum, e : HvExpr) : HvExpr =
     e.reparentTo result
 
 func hvPlus(e, e1 : HvExpr) : HvExpr =
+    if e === e1:
+        return hvTimes(makenum 2, e)
     result = HvExpr(kind : NkCall, val : "+")
     reparentTo(e, e1, result)
 
+
+# Minus should be different to let elements of the expr tree die faster
 func hvMinus(a, b : HvNum) : HvExpr {.inline.} = hvPlus(a, -b)
 
 func hvMinus(l, r : HvExpr) : HvExpr =
@@ -128,33 +188,47 @@ func hvMinus(a : HvNum, e : HvExpr) : HvExpr =
     result = makeExpr(NkCall, "-").add makeExpr(a, result)
     e.reparentTo result
 
-func hvMinus(e : HvExpr, a : HvNum) : HvExpr = hvMinus(-a, makeExpr(NkCall, "-").add(makeExpr makenum 0, e))
-
-func hvTimes(a, b : HvNum) : HvExpr =
-    if a.isInt and b.isInt:
-        return makeExpr makenum(a.iVal * b.iVal)
-    elif a.isInt:
-        return makeExpr makenum(a.iVal.float * b.fVal)
-    elif b.isInt:
-        return makeExpr makenum(a.fVal * a.iVal.float)
-    return makeExpr makenum(a.fVal * b.fVal)
-
-func hvTimes(e : HvExpr, a : HvNum) : HvExpr =
-    result = HvExpr(kind : NkCall, val : "*")
-    result.add makeExpr(a, result)
-    e.reparentTo result
-
-func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(e, a) # multiplication is commutative
-
-func hvTimes(e, e1 : HvExpr) : HvExpr =
-    result = HvExpr(kind : NkCall, val : "*")
-    reparentTo(e, e1, result)
+func hvMinus(e : HvExpr, a : HvNum) : HvExpr = hvMinus(-a, makeExpr(NkCall, "-").add(makeExpr 0, e))
 
 func hvPlus(e : HvExpr, a : HvNum) : HvExpr {.inline.} = hvPlus(a, e) # addition is commutative
 
-#-------Building the Function Table-------#
 
-func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
+#--------Differentiation---------#
+
+func diff(e : HvExpr, wrt : string = "x") : HvExpr =
+    case e.kind:
+    of NkIntLit, NkFloatLit: return makeExpr 0
+    of NkIdent: 
+        if !e == wrt: return makeExpr 1
+        else: return makeExpr 0
+    of NkCall:
+        if e.val == "*":
+            # This will be the product rule, but if either of these two terms is constant, we can save some time
+            if e[0].kind in numerics:
+                if e[1].kind in numerics:
+                    return makeExpr 0
+                return makeExpr(NkCall, "*").add(e[0], diff(e[1], wrt))
+            elif e[1].kind in numerics:
+                return makeExpr(NkCall, "*").add(e[1], diff(e[0], wrt))
+            else:
+                # And this is the product rule
+                return makeExpr(NkCall, "+").add(
+                    makeExpr(NkCall, "*").add(
+                        diff(e[0], wrt), deepCopy(e[1])
+                    ), makeExpr(NkCall, "*").add(
+                        deepCopy(e[0]), diff(e[1], wrt)
+                    )
+                )
+
+    else: raise newException(Defect, &"Can't differentiate an {e.kind}")
+
+
+
+#-------Calling builtin Functions-------#
+
+proc evalTree(rt : ASTNode) : (HvVal, HvType) # Forward decl, for immediate simplification of complex ops
+
+proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     case id:
     of "+ HvNum HvNum ":
         return hvPlus(args[0].nVal, args[1].nVal)
@@ -163,6 +237,8 @@ func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
             return hvPlus(args[0].nVal, args[1].eVal)
         else:
             return hvPlus(args[0].eVal, args[1].nVal)
+    of "+ HvExpr HvExpr ":
+        return hvPlus(args[0].eVal, args[1].eVal)
     of "- HvNum HvNum ":
         return hvMinus(args[0].nVal, args[1].nVal)
     of "- HvExpr HvExpr ":
@@ -179,7 +255,10 @@ func callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
             return hvTimes(args[0].nVal, args[1].eVal)
         else:
             return hvTimes(args[0].eVal, args[1].nVal)
-
+    of "* HvExpr HvExpr ":
+        return hvTimes(args[0].eVal, args[1].eVal)
+    of "diff HvExpr ":
+        return evalTree(diff(args[0].eVal))[0].eVal
     else: raise newException(Defect, &"Undefined function {id}")
 
 
@@ -227,13 +306,12 @@ proc evalTree(rt : ASTNode) : (HvVal, HvType) =
                 writeStackTrace()
         
         result[0] = makeval callMagicFunc(paramTypes, params)
-        print result[0]
-        debugEcho (paramTypes, params)
-        echo "~~>"
+        # print result[0]
+        # echo (paramTypes, params)
+        # echo "~~>"
         result[1] = result[0].kind
 
 var rt = strParse readFile("./symbols.txt").splitLines[6]
 print rt
 echo "/============================/"
 print evalTree(rt[0])[0]
-echo likeTerms(strParse("ya * 8")[0], strParse("ay * 8")[0])
