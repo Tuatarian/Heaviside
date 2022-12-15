@@ -59,15 +59,25 @@ func `!`*(n : Token) : string = n.val
 func `$$`(n : ASTNode) : char = n.val[0]
 func `$$`(n : Token) : char = n.val[0]
 
-proc print*(n : ASTNode, d : int = -1) =
+proc print*(n : ASTNode, d : int = 0) =
     if n.kind != NkRt:
         echo &"""{"    ".repeat(d)}{n.kind} {!n}"""
-    for kid in n.kids:
-        print(kid, d + 1)
+        for kid in n.kids:
+            print(kid, d + 1)
+    else:
+        for kid in n.kids:
+            print(kid, d)     
 
-proc strTree*(n : ASTNode, d: int = -1) : string =
+proc strTree*(n : ASTNode, d: int = 0, root : bool = true) : string =
     if n.kind != NkRt:
-        result &= &"""{"    ".repeat(d)}{n.kind} {!n}"""
+        result &= &"""{"    ".repeat(d)}{n.kind} {!n}""" & "\n"
+        for kid in n.kids:
+            result &= strTree(kid, d + 1, false)
+    else:
+        for kid in n.kids:
+            result &= strTree(kid, d, false)
+    
+    if root: return result[0..^2]
 
 template makenum*(b : int | float) : untyped =
     when b is int:
@@ -99,7 +109,7 @@ proc tokenize*(inp : seq[string]) : seq[Token] =
             else:
                 result.add Token(kind : TkIntLit, val : inp[i])
         elif inp[i][0] == '\"' and inp[i][^1] == '\"':
-            result.add Token(kind : TkStrLit, val : inp[i])
+            result.add Token(kind : TkStrLit, val : inp[i][1..^2])
         elif inp[i][0] in punc:
             result.add Token(kind : TkPunc, val : inp[i])
         elif inp[i][0] in ops:
@@ -113,32 +123,37 @@ proc tokenize*(inp : seq[string]) : seq[Token] =
 #     for i in beg - 1..0:
 #         if s[i].kind.isNested
 
+
+template `[]`*(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
+
 proc delete[T, N](s : var seq[T], r : Slice[Natural]) = ## Delete all items in range
     for i in 0..<r.len:
         s.delete(r.a)
 
-proc add*(n : ASTNode, n1 : ASTNode, setPar : bool = true) : ASTNode {.discardable.} =
-    n.kids.add n1
-    if setPar: n1.parentalUnit = n
+proc add*(n : ASTNode, n1 : ASTNode, copy : bool = false, setPar : bool = false) : ASTNode {.discardable.} =
+    if copy:
+        n.kids.add deepCopy n1
+        if setPar: n[^1].parentalUnit = n1
+    else:
+        n.kids.add n1
+        if setPar: n1.parentalUnit = n
     return n
 
 proc add*(n : ASTNode, nodes : varargs[ASTNode]) : ASTNode =
     for node in nodes: n.add(node)
     return n
 
-proc add*(n : ASTNode, nodes : varargs[ASTNode], setPars : bool) : ASTNode =
-    for node in nodes: n.add(node, setPars)
+proc add*(n : ASTNode, nodes : varargs[ASTNode], copy : bool, setPars : bool) : ASTNode =
+    for node in nodes: n.add(node, copy, setPars)
     return n
 
-template `[]`*(n : ASTNode, i : untyped) : ASTNode = n.kids[i]
-
-proc pushInto[T](e : T, s : var seq[T], frm : int) =
+proc pushInto[T](e : T, s : var openArray[T], frm : int) =
     s.add e
     for i in frm + 1..<s.len:
         swap(s[frm], s[i])
 
 proc reparentTo*(n : ASTNode, p : ASTNode) =
-    p.add(n, false)
+    p.add(n, false, false)
     if n.parentalUnit != nil: n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
     n.parentalUnit = p
 
@@ -189,7 +204,10 @@ proc parseCall(rt : ASTNode, inp : seq[Token]) =
     args.add iMedArg
 
     for arg in args:
-        rt[^1].parseExpr(arg) # incase it has operators
+        if arg.len == 1:
+            rt[^1].parseArg arg
+        else:
+            rt[^1].parseExpr(arg) # incase it has operators
 
     lastNode = rt[^1]
                     
@@ -241,8 +259,7 @@ proc parseArg*(rt : ASTNode, inp : seq[Token]) =
                 inOp = true
         elif inp[i].kind == TkIdent:
             if inOp:
-                inOp = false
-                
+                inOp = false                
                 lastNode.add ASTNode(kind : NkIdent, val : !inp[i], parentalUnit : lastNode)
                 lastNode = lastNode[^1]
             else:
@@ -264,13 +281,21 @@ proc parseArg*(rt : ASTNode, inp : seq[Token]) =
             else:
                 rt.add ASTNode(kind : NkIntLit, nVal : makenum parseInt !inp[i], parentalUnit : rt)
                 lastNode = rt[^1]
+        elif inp[i].kind == TkStrLit:
+            if inOp:
+                inOp = false
+                lastNode.add ASTNode(kind : NkStrLit, val : !inp[i], parentalUnit : lastNode)
+                lastNode = lastNode[^1]
+            else:
+                rt.add ASTNode(kind : NkStrLit, val : !inp[i], parentalUnit : rt)
+                lastNode = rt[^1]
         i += 1
 
 proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     # We iterate over the expr, we split it into the operators and the not operators
     # We process the args (so something like f(a) + g(b) gets processed correctly) then pass them to the operators
-    # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no operators, we give it to parseArg
-    # Eventually, we get to (possibly deeply nested) exprs which are arguement free, and the algorithm will converge
+    # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no (infix) operators, we give it to parseArg
+    # Eventually, we get to (possibly deeply nested) exprs which are operator free, and the algorithm will converge
 
     var args : seq[seq[Token]]
     var imedArg : seq[Token]
@@ -294,12 +319,7 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     args.add imedArg
 
 
-    # Search through args and find all the indices of operators with the highest precedence
-    var ops : seq[int]
-    for i in 0..<args.len:
-        if args[i].len == 1 and args[i][0].kind == TkOp:
-            ops.add i
-
+    # Stack based parsing
     var opSt : seq[seq[Token]]
     var pfOut : seq[seq[Token]]
     for arg in args:
@@ -314,9 +334,6 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     for i in 1..opSt.len:
         pfOut.add opSt[^i]
 
-    var localLastNode = rt
-    var argSt : seq[seq[Token]]
-    debugEcho pfOut.map(x => x.map(y => !y))
     for i in 0..<pfOut.len:
         if pfOut[i].len == 1 and pfOut[i][0].kind == TkOp:
             rt.add ASTNode(kind : NkCall, val : !pfOut[i][0], parentalUnit : rt)

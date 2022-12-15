@@ -1,10 +1,10 @@
-import strutils, sequtils, tables, zero_functional, strformat, parlex, macros, math
+import strutils, tables, zero_functional, strformat, parlex, math
 
 ## We're using an object variant here since I (obviously) don't want to make the user decide whether a number should be a float or an int in a CAS
 ## Also, we're going to require significantly different handling for ints than floats, for example 3/4 should not be converted to 0.75
 
 type HvType = enum
-    Num, Expr
+    Num, Expr, Str
 
 type HvExpr = ASTNode
 
@@ -12,6 +12,7 @@ type HvVal = object  # Using this for things who's types are unknown (like uneva
     case kind : HvType
     of Num: nVal : HvNum
     of Expr: eVal : HvExpr
+    of Str: sVal : string
 
 #-------Convenience funcs-------#)
 
@@ -20,6 +21,12 @@ func `$`(p : pointer) : string = "0x" & cast[int](p).toHex
 func nType(n : HvNum) : NKind =
     if n.isInt: return NkIntLit
     else: return NkFloatLit
+
+template hvType(n : NKind) : HvType =
+    case n:
+    of NkIntLit, NkFloatLit: Num
+    of NkStrLit: Str
+    else: Expr
 
 func `-`(a : HvNum) : HvNum =
     if a.isInt: return makenum(-a.iVal)
@@ -44,11 +51,13 @@ func `$`(v : HvVal) : string =
     case v.kind:
     of Num: $v.nVal
     of Expr: !v.eVal
+    of Str: v.sVal
 
 proc print(v : HvVal) =
     case v.kind:
     of Num: echo v.nVal
     of Expr: print(v.eVal, 0)
+    of Str: echo v.sVal
 
 func makeExpr(a : HvNum, p : ASTNode = nil) : HvExpr = 
     if a.isInt:
@@ -195,7 +204,7 @@ func hvPlus(e : HvExpr, a : HvNum) : HvExpr {.inline.} = hvPlus(a, e) # addition
 
 #--------Differentiation---------#
 
-func diff(e : HvExpr, wrt : string = "x") : HvExpr =
+func diff(e : HvExpr, wrt : string) : HvExpr =
     case e.kind:
     of NkIntLit, NkFloatLit: return makeExpr 0
     of NkIdent: 
@@ -203,7 +212,7 @@ func diff(e : HvExpr, wrt : string = "x") : HvExpr =
         else: return makeExpr 0
     of NkCall:
         if e.val == "*":
-            # This will be the product rule, but if either of these two terms is constant, we can save some time
+            # This will be the product rule, but if either of these two terms is constant, we can save some space
             if e[0].kind in numerics:
                 if e[1].kind in numerics:
                     return makeExpr 0
@@ -214,11 +223,25 @@ func diff(e : HvExpr, wrt : string = "x") : HvExpr =
                 # And this is the product rule
                 return makeExpr(NkCall, "+").add(
                     makeExpr(NkCall, "*").add(
-                        diff(e[0], wrt), deepCopy(e[1])
+                        diff(e[0], wrt),e[1]
                     ), makeExpr(NkCall, "*").add(
-                        deepCopy(e[0]), diff(e[1], wrt)
+                        e[0], diff(e[1], wrt)
                     )
                 )
+        elif e.val == "+":
+            # We can save some space here by not doing an addition if any of the terms are constants
+            if e[0].kind in numerics:
+                if e[1].kind in numerics:
+                    return makeExpr 0
+                else:
+                    return diff(e[1], wrt)
+            elif e[1].kind in numerics:
+                return diff(e[0], wrt)
+            else:
+                # diff(a + b) = diff(a) + diff(b)
+                return makeExpr(NkCall, "+").add(diff(e[0], wrt), diff(e[1], wrt))
+
+            
 
     else: raise newException(Defect, &"Can't differentiate an {e.kind}")
 
@@ -226,13 +249,13 @@ func diff(e : HvExpr, wrt : string = "x") : HvExpr =
 
 #-------Calling builtin Functions-------#
 
-proc evalTree(rt : ASTNode) : (HvVal, HvType) # Forward decl, for immediate simplification of complex ops
+proc evalTree(rt : ASTNode) : HvExpr # Forward decl, for immediate simplification of complex ops
 
 proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     case id:
     of "+ HvNum HvNum ":
         return hvPlus(args[0].nVal, args[1].nVal)
-    of "+ HvExpr HvNum ", "+ HvNum, HvExpr ":
+    of "+ HvExpr HvNum ", "+ HvNum HvExpr ":
         if args[0].kind == Num:
             return hvPlus(args[0].nVal, args[1].eVal)
         else:
@@ -257,8 +280,8 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
             return hvTimes(args[0].eVal, args[1].nVal)
     of "* HvExpr HvExpr ":
         return hvTimes(args[0].eVal, args[1].eVal)
-    of "diff HvExpr ":
-        return evalTree(diff(args[0].eVal))[0].eVal
+    of "diff HvExpr Str ":
+        return evalTree(diff(args[0].eVal, args[1].sVal))
     else: raise newException(Defect, &"Undefined function {id}")
 
 
@@ -267,17 +290,17 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
 # General idea for this part
 
 # DFS to go down the tree
-# At each call, the child nodes are either HvNums or Exprs
+# At each call, the child nodes are either HvNums or Exprs or Str
 # If we have an ident, then it is by default an expr
 # If we have a NumLit, it is by default an HvNum
 # If we have a node with children, then we recursively do the above to that node
 # At the end, we'd need to have a way to pass that up
-# For now, I'll do this by returning a tuple of (ASTNode, HvType)
-    # The ASTNode is the result of applying the function to the node (quite possibly an expr)
+# For now, I'll do this by returning a tuple of (HvVal, HvType)
+    # is the result of applying the function to the node (quite possibly an expr)
     # The type is the type of the node (NumLit or Expr)
     # This might move onto the tree itself at some point in the future
 
-proc evalTree(rt : ASTNode) : (HvVal, HvType) =
+proc evalTree(rt : ASTNode) : HvExpr =
     if rt.kind == NkCall:
         var params : seq[HvVal]
         var paramTypes = !rt & " "
@@ -293,25 +316,29 @@ proc evalTree(rt : ASTNode) : (HvVal, HvType) =
             of NkFloatLit:
                 paramTypes &= "HvNum "
                 params.add HvVal(kind : Num, nVal : k.nVal)
+            of NkStrLit:
+                paramTypes &= "Str "
+                params.add HvVal(kind : Str, sVal : !k)
             of NkCall:
                 var res = evalTree k
-                if res[0].eVal.kind in numerics:
-                    params.add makeval res[0].eVal.nVal
+                if res.kind in numerics:
+                    params.add makeval res.nVal
                     paramTypes &= "HvNum "
                 else:
                     paramTypes &= "HvExpr "
-                    params.add res[0]
+                    params.add makeval res
             else:
                 echo "Unexpected Node Kind in tree evaluation"
                 writeStackTrace()
         
-        result[0] = makeval callMagicFunc(paramTypes, params)
-        # print result[0]
-        # echo (paramTypes, params)
+        # debugEcho (paramTypes, params)
+        result = callMagicFunc(paramTypes, params)
+        # print result
         # echo "~~>"
-        result[1] = result[0].kind
+    else:
+        result = deepCopy rt
 
 var rt = strParse readFile("./symbols.txt").splitLines[6]
 print rt
 echo "/============================/"
-print evalTree(rt[0])[0]
+print evalTree(rt[0])
