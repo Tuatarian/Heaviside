@@ -45,7 +45,7 @@ template apply(n: HvNum, act : untyped) : untyped =
     if n.isInt:
         act(n.iVal)
     else:
-        act(n.fVal) 
+        act(n.fVal)
 
 func `$`(v : HvVal) : string =
     case v.kind:
@@ -98,6 +98,9 @@ func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same 
     return false
 
 #---------Tree Transformation Functions---------#
+
+func isConst(e : HvExpr, wrt : string) : bool =
+    if e.kind in numerics or e.kind == NkIdent and e.val != wrt: return true
 
 func likeTerms(e, e1 : HvExpr) : bool =
     if e.kind == NkCall and e1.kind == NkCall and !e == "*" and !e1 == "*":
@@ -163,6 +166,9 @@ func hvTimes(e, e1 : HvExpr) : HvExpr =
             return makeExpr 0
         elif e1.nVal == makenum 1:
             return e
+    
+    elif e === e1:
+        return makeExpr(NkCall, "^").add(e, makeExpr 2)
 
     return makeExpr(NkCall, "*").add(e, e1)
 
@@ -185,6 +191,7 @@ func hvPlus(a : HvNum, e : HvExpr) : HvExpr =
 func hvPlus(e, e1 : HvExpr) : HvExpr =
     if e === e1:
         return hvTimes(makenum 2, e)
+
     result = HvExpr(kind : NkCall, val : "+")
     reparentTo(e, e1, result)
 
@@ -239,6 +246,7 @@ func hvPow(a, b : HvNum) : HvExpr =
         if b.isInt:
             if b.iVal < 0:
                 return makeExpr(NkCall, "/").add(makeExpr 1, makeExpr(a.iVal ^ abs(b.iVal)))
+            return makeExpr a.iVal ^ b.iVal
         else:
             return makeExpr a.iVal.float.pow(b.fVal)
     else:
@@ -250,6 +258,8 @@ func hvPow(a, b : HvNum) : HvExpr =
 func hvPow(a : HvNum, e : HvExpr) : HvExpr =
     if a == makenum 0:
         return makeExpr 0
+    if a == makenum 1:
+        return makeExpr 1
     
     return makeExpr(NkCall, "^").add(makeExpr a, e)
 
@@ -258,6 +268,38 @@ func hvPow(e : HvExpr, a : HvNum) : HvExpr =
 
 func hvPow(e, e1 : HvExpr) : HvExpr =
     return makeExpr(NkCall, "^").add(e, e1)
+
+
+
+
+func hvExp(a : Hvnum) : HvExpr =
+    if a == makenum 0:
+        return makeExpr 1
+    else:
+        return makeExpr(NkCall, "exp").add(makeExpr a)
+
+func hvExp(e : HvExpr) : HvExpr =
+    if e === makeExpr 0:
+        return makeExpr 1
+
+    elif e.kind == NkCall and e.val == "ln":
+        return e[0]
+
+    else:
+        return makeExpr(NkCall, "exp").add(e)
+
+func hvLn(a : HvNum) : HvExpr =
+    if op(a, makenum 0, `<=`):
+        raise newException(Defect, "cannot take ln of a nonpositive value")
+
+    return makeExpr(NkCall, "ln").add(makeExpr a)
+
+func hvLn(e : HvExpr) : HvExpr =
+    if e.kind == NkCall and e.val == "exp":
+        return e[0]
+    else:
+        return makeExpr(NkCall, "ln").add(e)
+
 
 #--------Differentiation---------#
 
@@ -271,11 +313,11 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
 
         if e.val == "*":
             # This will be the product rule, but if either of these two terms is constant, we can save some space
-            if e[0].kind in numerics:
-                if e[1].kind in numerics:
+            if e[0].isConst(wrt):
+                if e[1].isConst(wrt):
                     return makeExpr 0
                 return makeExpr(NkCall, "*").add(e[0], diff(e[1], wrt))
-            elif e[1].kind in numerics:
+            elif e[1].isConst(wrt):
                 return makeExpr(NkCall, "*").add(e[1], diff(e[0], wrt))
             else:
                 # And this is the product rule
@@ -289,12 +331,12 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
 
         elif e.val == "+":
             # We can save some space here by not doing an addition if any of the terms are constants
-            if e[0].kind in numerics:
-                if e[1].kind in numerics:
+            if e[0].isConst(wrt):
+                if e[1].isConst(wrt):
                     return makeExpr 0
                 else:
                     return diff(e[1], wrt)
-            elif e[1].kind in numerics:
+            elif e[1].isConst(wrt):
                 return diff(e[0], wrt)
             else:
                 # diff(a + b) = diff(a) + diff(b)
@@ -302,9 +344,9 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
 
         elif e.val == "-":
             # This is the same thing as addition, but I will leave it separate until I figure out how to handle negative numbers
-            if e[1].kind in numerics:
+            if e[0].isConst(wrt):
                 # We only have the diff(e[1]) = 0 case since atm, -a is represented as 0 - a
-                if e[0].kind in numerics:
+                if e[1].isConst(wrt):
                     return makeExpr 0
                 else:
                     return diff(e[0], wrt)
@@ -313,12 +355,12 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
                 return makeExpr(NkCall, "-").add(diff(e[0], wrt), diff(e[1], wrt))
 
         elif e.val == "/":
-            if e[1].kind in numerics:
-                if e[0].kind in numerics:
+            if e[0].isConst(wrt):
+                if e[1].isConst(wrt):
                     return makeExpr 0
                 else:
                     return makeExpr(NkCall, "/").add(diff(e[0], wrt), e[1])
-            elif e[0].kind in numerics:
+            elif e[1].isConst(wrt):
 
                 # Reciprocal rule, subset of quotient rule, makes a smaller tree
                 return makeExpr(NkCall, "*").add(
@@ -338,6 +380,45 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
                         )
                     ), makeExpr(NkCall, "^").add(e[1], makeExpr 2)
                 )
+        
+        elif e.val == "^":
+            if e[1].isConst(wrt): # if g in f^g is constant
+                if e[0].isConst(wrt):
+                    return makeExpr 0
+                
+                elif e[0].kind == NkIdent: # Power/Monomial rule
+                    
+                    return makeExpr(NkCall, "*").add(
+                        makeExpr e[1].nVal,
+                        makeExpr(NkCall, "^").add(
+                            e[0], makeExpr(e[1].nVal - 1)
+                        )
+                    )
+
+                else: # General case when d(f) is not 1
+                    return makeExpr(NkCall, "*").add(
+                        makeExpr(NkCall, "*").add(
+                            makeExpr e[1].nVal,
+                            makeExpr(NkCall, "^").add(
+                                e[0], makeExpr(e[1].nVal - 1)
+                            )
+                        ), diff(e[0], wrt)
+                    )
+            else:
+
+                # Full exponent rule
+                return makeExpr(NkCall, "*").add(
+                    hvPow(e[0], e[1]),
+                    makeExpr(NkCall, "+").add(
+                        makeExpr(NkCall, "*").add(
+                            diff(e[1], wrt), hvLn(e[0])
+                        ), makeExpr(NKCall, "/").add(
+                            makeExpr(NkCall, "*").add(e[1], diff(e[0], wrt)), e[0]
+                        )
+                    )
+                )
+                
+
             
 
     else: raise newException(Defect, &"Can't differentiate an {e.kind}")
@@ -393,6 +474,7 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     of "/ HvExpr HvExpr ":
         return hvDiv(args[0].eVal, args[1].eVal)
 
+
     of "^ HvNum HvNum ":
         return hvPow(args[0].nVal, args[1].nVal)
     of "^ HvNum HvExpr ", "^ HvExpr HvNum ":
@@ -403,6 +485,15 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     of "^ HvExpr HvExpr ":
         return hvPow(args[0].eVal, args[1].eVal)
 
+    of "ln HvExpr ":
+        return hvLn(args[0].eVal)
+    of "ln HvNum ":
+        return hvLn(args[0].nVal)
+
+    of "exp HvExpr ":
+        return hvExp(args[0].eVal)
+    of "exp HvNum ":
+        return hvExp(args[0].nVal)
 
 
     of "diff HvExpr Str ":

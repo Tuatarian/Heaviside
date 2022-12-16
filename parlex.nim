@@ -85,9 +85,28 @@ template makenum*(b : int | float) : untyped =
     else:
         HvNum(isInt : false, fVal : b)
 
+func `+`*(n : HvNum, a : int | float) : HvNum =
+    if n.isInt:
+        when a is int:
+            return makenum n.iVal + a
+        else:
+            return makenum n.iVal.float + a
+    else:
+        return makenum n.fVal + a.float
 
+func `+`*(a : int | float, n : HvNum) : HvNum = n + a
 
+func `-`*(n : HvNum, a : int | float) : HvNum = n + (-a)
 
+func `-`*(a : int | float, n : HvNum) : HvNum = -n + a
+
+template op*(a, b : HvNum, f : untyped) : untyped =
+    if a.isInt:
+        if b.isInt: f(a.iVal, b.iVal)
+        else: f(a.iVal.float, b.fVal)
+    else:
+        if b.isInt: f(a.fVal, b.iVal.float)
+        else: f(a.fVal, b.fVal)
 
 proc partFile*(inp : string) : seq[string] =
     var cWord : string
