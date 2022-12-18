@@ -86,6 +86,8 @@ func `==`(a, b : HvNum) : bool =
             return ai.int == b.iVal and af.almostEqual 0.0
         return b.fVal.almostEqual a.fVal
 
+func `==`(a : HvNum, b : int | float) : bool = a == makenum b
+
 func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same as checking if an expression is equal to another
     if e.kind == e1.kind:
         if e.kind in numerics:
@@ -149,9 +151,7 @@ func hvTimes(e : HvExpr, a : HvNum) : HvExpr =
     elif a == makenum 1:
         return e
 
-    result = HvExpr(kind : NkCall, val : "*")
-    result.add makeExpr(a, result)
-    e.reparentTo result
+    result = makeExpr(NkCall, "*").add(makeExpr a, e)
 
 func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(e, a) # multiplication is commutative
 
@@ -184,9 +184,7 @@ func hvPlus(a, b : HvNum) : HvExpr =
 # The above doesn't handle exprs, we'll need to do that differently
 
 func hvPlus(a : HvNum, e : HvExpr) : HvExpr =
-    result = HvExpr(kind : NkCall, val : "+")
-    result.add makeExpr(a, result)
-    e.reparentTo result
+    result = makeExpr(NkCall, "+").add(makeExpr a, e)
 
 func hvPlus(e, e1 : HvExpr) : HvExpr =
     if e === e1:
@@ -203,13 +201,15 @@ func hvMinus(l, r : HvExpr) : HvExpr =
     if l === r:
         return makeExpr makenum 0
     else:
-        return hvPlus(l, r)
+        return makeExpr(NkCall, "-").add(l, r)
 
 func hvMinus(a : HvNum, e : HvExpr) : HvExpr =
-    result = makeExpr(NkCall, "-").add makeExpr(a, result)
-    e.reparentTo result
+    result = makeExpr(NkCall, "-").add(makeExpr a, e)
 
 func hvMinus(e : HvExpr, a : HvNum) : HvExpr =
+    if a == 0:
+        return e
+
     return makeExpr(NkCall, "-").add(e, makeExpr a)
 
 func hvPlus(e : HvExpr, a : HvNum) : HvExpr {.inline.} = hvPlus(a, e) # addition is commutative
@@ -242,6 +242,11 @@ func hvPow(a, b : HvNum) : HvExpr =
     elif a == makenum 0:
         return makeExpr 0
 
+    elif b == 1:
+        return makeExpr a
+    elif a == 1:
+        return makeExpr 1
+
     if a.isInt:
         if b.isInt:
             if b.iVal < 0:
@@ -264,6 +269,11 @@ func hvPow(a : HvNum, e : HvExpr) : HvExpr =
     return makeExpr(NkCall, "^").add(makeExpr a, e)
 
 func hvPow(e : HvExpr, a : HvNum) : HvExpr =
+    if a == 0:
+        return makeExpr 1
+    elif a == 1:
+        return e
+
     return makeExpr(NkCall, "^").add(e, makeExpr a)
 
 func hvPow(e, e1 : HvExpr) : HvExpr =
@@ -275,8 +285,8 @@ func hvPow(e, e1 : HvExpr) : HvExpr =
 func hvExp(a : Hvnum) : HvExpr =
     if a == makenum 0:
         return makeExpr 1
-    else:
-        return makeExpr(NkCall, "exp").add(makeExpr a)
+
+    return makeExpr(NkCall, "exp").add(makeExpr a)
 
 func hvExp(e : HvExpr) : HvExpr =
     if e === makeExpr 0:
@@ -498,7 +508,11 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
 
     of "diff HvExpr Str ":
         return evalTree(diff(args[0].eVal, args[1].sVal))
-    else: raise newException(Defect, &"Undefined function {id}")
+    
+    else:
+        for arg in args:
+            print arg
+        raise newException(Defect, &"Undefined function {id}")
 
 
 #----------Tree Walking Code----------#

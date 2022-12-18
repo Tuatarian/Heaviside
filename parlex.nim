@@ -337,13 +337,12 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
             imedArg.add t
     args.add imedArg
 
-
     # Stack based parsing
     var opSt : seq[seq[Token]]
     var pfOut : seq[seq[Token]]
     for arg in args:
         if arg.len == 1 and arg[0].kind == TkOp:
-            while opSt.len >= 1 and precs[!opSt[^1][0]] >= precs[!arg[0]]:
+            while opSt.len >= 1 and precs[!opSt[^1][0]] >= precs[!arg[0]]: # If there's an item on the op stack with higher precedence than the one we're currently on
                 pfOut.add opSt[^1]
                 opSt.delete(opSt.len - 1)
             opSt.add arg
@@ -353,11 +352,16 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     for i in 1..opSt.len:
         pfOut.add opSt[^i]
 
+
     for i in 0..<pfOut.len:
         if pfOut[i].len == 1 and pfOut[i][0].kind == TkOp:
             rt.add ASTNode(kind : NkCall, val : !pfOut[i][0], parentalUnit : rt)
             rt[^3].reparentTo rt[^1]
             rt[^2].reparentTo rt[^1]
+        # elif pfOut[i][^1].kind == TkIdent and pfOut[i]
+        elif pfOut[i][0].kind == TkPunc and !pfOut[i][0] == "(":
+            assert pfOut[i][^1].kind == TkPunc and !pfOut[i][^1] == ")"
+            rt.parseExpr pfOut[i][1..^2]
         else:
             rt.parseArg pfOut[i]
 
@@ -365,5 +369,7 @@ proc strParse*(inp : string) : ASTNode =
     result = ASTNode(kind : NkRt)
     parseExpr(result, tokenize partFile inp) 
 
-var rt = ASTNode(kind : NkRt)
-lastNode = rt
+proc infixTree(rt : ASTNode) : string =
+    # We'll do the same thing of going through postfix
+
+var rt = strParse readFile("./symbols.txt").splitLines[6]
