@@ -369,7 +369,7 @@ proc strParse*(inp : string) : ASTNode =
     result = ASTNode(kind : NkRt)
     parseExpr(result, tokenize partFile inp) 
 
-proc infixTree(rt : ASTNode) : string =
+# proc infixTree(rt : ASTNode) : string =
     # We'll do the same thing of going through postfix
 
 var rt = strParse readFile("./symbols.txt").splitLines[6]
