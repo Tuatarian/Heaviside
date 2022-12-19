@@ -74,6 +74,11 @@ func makeExpr(k : NKind, v : string = "", n : HvNum = makenum 0, p : HvExpr = ni
 
 func makeExpr(n : int | float) : HvExpr = makeExpr makenum n
 
+func makeExpr(v : HvVal) : HvExpr =
+    if v.kind == Num:
+        return makeExpr v.nVal
+    else: return v.eVal
+
 func `==`(a, b : HvNum) : bool =
     if a.isInt:
         if b.isInt:
@@ -102,7 +107,7 @@ func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same 
 #---------Tree Transformation Functions---------#
 
 func isConst(e : HvExpr, wrt : string) : bool =
-    if e.kind in numerics or e.kind == NkIdent and e.val != wrt: return true
+    if e.kind in numerics or (e.kind == NkIdent and e.val != wrt): return true
 
 func likeTerms(e, e1 : HvExpr) : bool =
     if e.kind == NkCall and e1.kind == NkCall and !e == "*" and !e1 == "*":
@@ -353,13 +358,14 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
                 return makeExpr(NkCall, "+").add(diff(e[0], wrt), diff(e[1], wrt))
 
         elif e.val == "-":
-            # This is the same thing as addition, but I will leave it separate until I figure out how to handle negative numbers
+            # minor differences from +
             if e[0].isConst(wrt):
-                # We only have the diff(e[1]) = 0 case since atm, -a is represented as 0 - a
                 if e[1].isConst(wrt):
                     return makeExpr 0
                 else:
-                    return diff(e[0], wrt)
+                    return diff(hvTimes(makenum -1, e[1]), wrt)
+            elif e[1].isConst(wrt):
+                return diff(e[0], wrt)
             else:
                 # diff(a - b) = diff(a) - diff(b)
                 return makeExpr(NkCall, "-").add(diff(e[0], wrt), diff(e[1], wrt))
@@ -426,12 +432,11 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
                             makeExpr(NkCall, "*").add(e[1], diff(e[0], wrt)), e[0]
                         )
                     )
-                )
-                
+                )              
 
             
 
-    else: raise newException(Defect, &"Can't differentiate an {e.kind}")
+    else: raise newException(Defect, &"Can't differentiate an \"{e.kind}\"")
 
 
 
@@ -440,74 +445,80 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
 proc evalTree(rt : ASTNode) : HvExpr # Forward decl, for immediate simplification of complex ops
 
 proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
-    case id:
-    of "+ HvNum HvNum ":
+    if id == "+ HvNum HvNum ":
         return hvPlus(args[0].nVal, args[1].nVal)
-    of "+ HvExpr HvNum ", "+ HvNum HvExpr ":
+    elif id == "+ HvExpr HvNum " or id == "+ HvNum HvExpr ":
         if args[0].kind == Num:
             return hvPlus(args[0].nVal, args[1].eVal)
         else:
             return hvPlus(args[0].eVal, args[1].nVal)
-    of "+ HvExpr HvExpr ":
+    elif id == "+ HvExpr HvExpr ":
         return hvPlus(args[0].eVal, args[1].eVal)
 
 
-    of "- HvNum HvNum ":
+    elif id == "- HvNum HvNum ":
         return hvMinus(args[0].nVal, args[1].nVal)
-    of "- HvExpr HvExpr ":
+    elif id == "- HvExpr HvExpr ":
         return hvMinus(args[0].eVal, args[1].eVal)
-    of "- HvExpr HvNum ", "- HvNum HvExpr ":
+    elif id == "- HvExpr HvNum " or id == "- HvNum HvExpr ":
         if args[0].kind == Num:
             return hvMinus(args[0].nVal, args[1].eVal)
         else:
             return hvMinus(args[0].eVal, args[1].nVal)
 
 
-    of "* HvNum HvNum ":
+    elif id == "* HvNum HvNum ":
         return hvTimes(args[0].nVal, args[1].nVal)
-    of "* HvNum HvExpr ", "* HvExpr HvNum ":
+    elif id == "* HvNum HvExpr " or id == "* HvExpr HvNum ":
         if args[0].kind == Num:
             return hvTimes(args[0].nVal, args[1].eVal)
         else:
             return hvTimes(args[0].eVal, args[1].nVal)
-    of "* HvExpr HvExpr ":
+    elif id == "* HvExpr HvExpr ":
         return hvTimes(args[0].eVal, args[1].eVal)
 
 
-    of "/ HvNum HvNum ":
+    elif id == "/ HvNum HvNum ":
         return hvDiv(args[0].nVal, args[1].nVal)
-    of "/ HvNum HvExpr ", "/ HvExpr HvNum ":
+    elif id == "/ HvNum HvExpr " or id == "/ HvExpr HvNum ":
         if args[0].kind == Num:
             return hvDiv(args[0].nVal, args[1].eVal)
         else:
             return hvDiv(args[0].eVal, args[1].nVal)
-    of "/ HvExpr HvExpr ":
+    elif id == "/ HvExpr HvExpr ":
         return hvDiv(args[0].eVal, args[1].eVal)
 
 
-    of "^ HvNum HvNum ":
+    elif id == "^ HvNum HvNum ":
         return hvPow(args[0].nVal, args[1].nVal)
-    of "^ HvNum HvExpr ", "^ HvExpr HvNum ":
+    elif id == "^ HvNum HvExpr " or id == "^ HvExpr HvNum ":
         if args[0].kind == Num:
             return hvPow(args[0].nVal, args[1].eVal)
         else:
             return hvPow(args[0].eVal, args[1].nVal)
-    of "^ HvExpr HvExpr ":
+    elif id == "^ HvExpr HvExpr ":
         return hvPow(args[0].eVal, args[1].eVal)
 
-    of "ln HvExpr ":
+
+    elif id == "ln HvExpr ":
         return hvLn(args[0].eVal)
-    of "ln HvNum ":
+    elif id == "ln HvNum ":
         return hvLn(args[0].nVal)
 
-    of "exp HvExpr ":
+    elif id == "exp HvExpr ":
         return hvExp(args[0].eVal)
-    of "exp HvNum ":
+    elif id == "exp HvNum ":
         return hvExp(args[0].nVal)
 
+    
+    elif id == "m HvExpr ":
+        return hvTimes(makenum -1, args[0].eVal)
+    elif id == "m HvNum ":
+        return hvTimes(makenum -1, args[0].nVal)
 
-    of "diff HvExpr Str ":
-        return evalTree(diff(args[0].eVal, args[1].sVal))
+    elif id == "diff HvExpr Str ":
+        print evalTree args[0].eVal
+        return evalTree(diff(evalTree args[0].eVal, args[1].sVal))
     
     else:
         for arg in args:
@@ -565,10 +576,14 @@ proc evalTree(rt : ASTNode) : HvExpr =
         result = callMagicFunc(paramTypes, params)
         # print result
         # echo "~~>"
+    elif rt.kind == NkRt:
+        result = ASTNode(kind : NkRt)
+        for kid in rt.kids:
+            result.add(evalTree kid)
     else:
         result = deepCopy rt
 
 var rt = strParse readFile("./symbols.txt").splitLines[6]
 print rt
 echo "/============================/"
-print evalTree(rt[0])
+print evalTree(rt)

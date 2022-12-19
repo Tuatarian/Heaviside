@@ -330,6 +330,12 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
             nestCount += -1
           
         if nestCount == 0 and t.kind == TkOp:
+            # We need separate handling for the unary -, let's turn it into m
+            if t.kind == TkOp and !t == "-":
+                if imedArg.len == 0 or imedArg[^1].kind == TkOp or !imedArg[^1] == "(":
+                    imedArg.add Token(kind : TkPrefOp, val : "m")
+                    continue
+
             args.add imedArg
             args.add @[t]
             imedArg = @[]
@@ -352,6 +358,7 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     for i in 1..opSt.len:
         pfOut.add opSt[^i]
 
+    # echo pfOut.map(x => x.map(y => !y)), " <> ", args.map(x => x.map(y => !y))
 
     for i in 0..<pfOut.len:
         if pfOut[i].len == 1 and pfOut[i][0].kind == TkOp:
