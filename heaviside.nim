@@ -517,7 +517,6 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
         return hvTimes(makenum -1, args[0].nVal)
 
     elif id == "diff HvExpr Str ":
-        print evalTree args[0].eVal
         return evalTree(diff(evalTree args[0].eVal, args[1].sVal))
     
     else:
