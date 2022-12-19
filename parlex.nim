@@ -172,7 +172,7 @@ proc pushInto[T](e : T, s : var openArray[T], frm : int) =
         swap(s[frm], s[i])
 
 proc reparentTo*(n : ASTNode, p : ASTNode) =
-    p.add(n, false, false)
+    p.kids.add(n)
     if n.parentalUnit != nil: n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
     n.parentalUnit = p
 
@@ -208,19 +208,25 @@ proc parseCall(rt : ASTNode, inp : seq[Token]) =
     var imedArg : seq[Token]
 
     var i = 2
+    if !inp[0] == "(":
+        i = 1
+
     while nestCount >= 0:
         if $$inp[i] == '(':
             nestCount += 1
         elif $$inp[i] == ')':
             nestCount += -1
+            if nestCount < 0:
+                break
 
-        if $$inp[i] != ',':
+        if nestCount != 0 or $$inp[i] != ',':
             imedArg.add inp[i]
-        elif nestCount <= 0:
+        else:
             args.add imedArg
             iMedArg = @[]
         i += 1
     args.add iMedArg
+
 
     for arg in args:
         if arg.len == 1:
@@ -242,14 +248,18 @@ proc parseArg*(rt : ASTNode, inp : seq[Token]) =
     # The logic for doing this with a prefix operator is detailed below
     # This function no longer deals with infix operators 
     
+    if $$inp[0] == '(' and $$inp[^1] == ')': # This is a hack for parsing things wrapped in (), which neither this nor parseExpr could properly do
+        if '(' notin inp[1..^2].map(x => $$x):
+            rt.parseExpr(inp[1..^2])
+            return
+
     while i in 0..<inp.len:
+
         if (i + 1 < inp.len and $$inp[i + 1] == '('):
             var nestCount : int
             var slice = (i, -1)
 
-            if inp[i].kind == TkOp:
-                i += 1
-            else: i += 2
+            i += 2
             
             while nestCount >= 0:
                 if $$inp[i] == '(':
@@ -310,13 +320,7 @@ proc parseArg*(rt : ASTNode, inp : seq[Token]) =
                 lastNode = rt[^1]
         i += 1
 
-proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
-    # We iterate over the expr, we split it into the operators and the not operators
-    # We process the args (so something like f(a) + g(b) gets processed correctly) then pass them to the operators
-    # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no (infix) operators, we give it to parseArg
-    # Eventually, we get to (possibly deeply nested) exprs which are operator free, and the algorithm will converge
-
-    var args : seq[seq[Token]]
+proc sepArgs(inp : seq[Token]) : seq[seq[Token]] =
     var imedArg : seq[Token]
 
     # We have to do a similar thing with keeping count of nesting that parseCall does (since we're parsing the args recursively)
@@ -336,12 +340,20 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
                     imedArg.add Token(kind : TkPrefOp, val : "m")
                     continue
 
-            args.add imedArg
-            args.add @[t]
+            result.add imedArg
+            result.add @[t]
             imedArg = @[]
         else:
             imedArg.add t
-    args.add imedArg
+    result.add imedArg
+
+proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
+    # We iterate over the expr, we split it into the operators and the not operators
+    # We process the args (so something like f(a) + g(b) gets processed correctly) then pass them to the operators
+    # Handling operators nested in calls : we pass each arg back to parseExpr recursively, and if it contains no (infix) operators, we give it to parseArg
+    # Eventually, we get to (possibly deeply nested) exprs which are operator free, and the algorithm will converge
+
+    var args = sepArgs inp
 
     # Stack based parsing
     var opSt : seq[seq[Token]]
@@ -358,17 +370,13 @@ proc parseExpr*(rt : ASTNode, inp : seq[Token]) =
     for i in 1..opSt.len:
         pfOut.add opSt[^i]
 
-    # echo pfOut.map(x => x.map(y => !y)), " <> ", args.map(x => x.map(y => !y))
-
     for i in 0..<pfOut.len:
         if pfOut[i].len == 1 and pfOut[i][0].kind == TkOp:
             rt.add ASTNode(kind : NkCall, val : !pfOut[i][0], parentalUnit : rt)
             rt[^3].reparentTo rt[^1]
             rt[^2].reparentTo rt[^1]
-        # elif pfOut[i][^1].kind == TkIdent and pfOut[i]
-        elif pfOut[i][0].kind == TkPunc and !pfOut[i][0] == "(":
-            assert pfOut[i][^1].kind == TkPunc and !pfOut[i][^1] == ")"
-            rt.parseExpr pfOut[i][1..^2]
+        elif true in sepArgs(pfOut[i]).map(x => x.len == 1 and x[0].kind == TkOp):
+            rt.parseExpr pfOut[i]
         else:
             rt.parseArg pfOut[i]
 
@@ -379,4 +387,5 @@ proc strParse*(inp : string) : ASTNode =
 # proc infixTree(rt : ASTNode) : string =
     # We'll do the same thing of going through postfix
 
-var rt = strParse readFile("./symbols.txt").splitLines[6]
+# var rt = strParse readFile("./symbols.txt").splitLines[6]
+# print rt
