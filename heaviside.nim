@@ -1,4 +1,4 @@
-import strutils, tables, zero_functional, strformat, parlex, math
+import strutils, tables, zero_functional, strformat, parlex, math, tables
 
 ## We're using an object variant here since I (obviously) don't want to make the user decide whether a number should be a float or an int in a CAS
 ## Also, we're going to require significantly different handling for ints than floats, for example 3/4 should not be converted to 0.75
@@ -132,6 +132,34 @@ func likeTerms(e, e1 : HvExpr) : bool =
 
 # Also, to maintain sanity, also since it's just objectively a good idea, we'll overload definitions of different versions of the same operation
 
+# *
+#     a
+#     *
+#         *
+#             c
+#             d
+#         *
+#             a
+#             b
+
+
+func transformProd(e : HvExpr) : HvExpr = ## This assumes that we have a max of 2 depth nesting of products, ie the most we get is a*(b*c)
+    ## This is generally correct, since the tree is traversed via DFS, so in any particular instance, we can onyl have 2 depth nesting
+    result = makeExpr(NkCall, "*")
+    
+    if e[0].kind == NkCall and !e[0] == "*":
+        for kid in e[0].kids:
+            result.add kid
+    else:
+        result.add e[0]
+
+    if e[1].kind == NkCall and !e[1] == "*":
+        for kid in e[1].kids:
+            result.add kid
+    else:
+        result.add e[1]
+
+
 func hvTimes(a, b : HvNum) : HvExpr =
     if a == makenum 0:
         return makeExpr 0
@@ -154,28 +182,70 @@ func hvTimes(e : HvExpr, a : HvNum) : HvExpr =
     if a == makenum 0:
         return makeExpr 0
     elif a == makenum 1:
-        return e
+        if e.kind == NkCall and !e == "*":
+            return transformProd e
+        else:
+            return e
 
-    result = makeExpr(NkCall, "*").add(makeExpr a, e)
+    let preRes = transformProd makeExpr(NkCall, "*").add(makeExpr a, e)
+    
+    var counts : Table[string, int]
+    var mapStrNode : Table[string, HvExpr]
+    for k in preRes.kids:
+        mapStrNode[strTree k] = deepCopy k
+        let kStr = strTree k
+
+        if kStr in counts:
+            counts[kStr] += 1
+        else:
+            counts[kStr] = 1
+    
+
+    result = makeExpr(NkCall, "*")
+    for str in mapStrNode.keys:
+        if counts[str] > 1:
+            result.add makeExpr(NkCall, "^").add(mapStrNode[str], makeExpr counts[str])
+        else:
+            result.add mapStrNode[str]
+            
+    
+
 
 func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(e, a) # multiplication is commutative
 
-func hvTimes(e, e1 : HvExpr) : HvExpr =
+proc hvTimes(e, e1 : HvExpr) : HvExpr =
+
     if e.kind in numerics:
         if e.nVal == makenum 0:
             return makeExpr 0
         elif e.nVal == makenum 1:
-            return e1
+            return transformProd e1
     elif e1.kind in numerics:
         if e1.nVal == makenum 0:
             return makeExpr 0
         elif e1.nVal == makenum 1:
-            return e
-    
-    elif e === e1:
-        return makeExpr(NkCall, "^").add(e, makeExpr 2)
+            return transformProd e
 
-    return makeExpr(NkCall, "*").add(e, e1)
+    let preRes = transformProd makeExpr(NkCall, "*").add(e, e1)
+
+    var counts : Table[string, int]
+    var mapStrNode : Table[string, HvExpr]
+    for k in preRes.kids:
+        mapStrNode[strTree k] = deepCopy k
+        let kStr = strTree k
+
+        if kStr in counts:
+            counts[kStr] += 1
+        else:
+            counts[kStr] = 1
+    
+    result = makeExpr(NkCall, "*")
+    for str in mapStrNode.keys:
+        if counts[str] > 1:
+            result.add makeExpr(NkCall, "^").add(mapStrNode[str], makeExpr counts[str])
+        else:
+            result.add mapStrNode[str]
+
 
 # Perhaps the sum function should be different, maybe variadic, so I'll call the `+` operator hvPlus for now
 func hvPlus(a, b : HvNum) : HvExpr =
