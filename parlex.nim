@@ -68,6 +68,15 @@ proc print*(n : ASTNode, d : int = 0) =
         for kid in n.kids:
             print(kid, d)     
 
+func dbgPrint*(n : ASTNode, d : int = 0) =
+    if n.kind != NkRt:
+        debugEcho &"""{"    ".repeat(d)}{n.kind} {!n}"""
+        for kid in n.kids:
+            dbgPrint(kid, d + 1)
+    else:
+        for kid in n.kids:
+            dbgPrint(kid, d)     
+
 proc strTree*(n : ASTNode, d: int = 0, root : bool = true) : string =
     if n.kind != NkRt:
         result &= &"""{"    ".repeat(d)}{n.kind} {!n}""" & "\n"
@@ -96,17 +105,40 @@ func `+`*(n : HvNum, a : int | float) : HvNum =
 
 func `+`*(a : int | float, n : HvNum) : HvNum = n + a
 
+func `+`*(a, b : HvNum) : HvNum =
+    if a.isInt:
+        if b.isInt:
+            return makenum a.iVal + b.iVal
+        else:
+            return makenum a.iVal.float + b.fVal
+    else:
+        if b.isInt:
+            return makenum a.fVal + b.iVal.float
+        else:
+            return makenum a.fVal + b.fVal
+
+func `+=`*(a : var HvNum, b : HvNum) =
+    a = a + b
+
 func `-`*(n : HvNum, a : int | float) : HvNum = n + (-a)
 
 func `-`*(a : int | float, n : HvNum) : HvNum = -n + a
 
-template op*(a, b : HvNum, f : untyped) : untyped =
+template op*(a, b : HvNum, f : untyped) : untyped = ## f should return the same thing, independent of whether a/b are ints or floats
     if a.isInt:
         if b.isInt: f(a.iVal, b.iVal)
         else: f(a.iVal.float, b.fVal)
     else:
         if b.isInt: f(a.fVal, b.iVal.float)
         else: f(a.fVal, b.fVal)
+
+func `<`*(a, b : HvNum) : bool = op(a, b, `<`)
+
+
+
+
+
+
 
 proc partFile*(inp : string) : seq[string] =
     var cWord : string
@@ -123,7 +155,7 @@ proc partFile*(inp : string) : seq[string] =
 proc tokenize*(inp : seq[string]) : seq[Token] =
     for i in 0..<inp.len:
         if inp[i][0] in '0'..'9':
-            if ',' in inp[i]:
+            if '.' in inp[i]:
                 result.add Token(kind : TkFloatLit, val : inp[i])
             else:
                 result.add Token(kind : TkIntLit, val : inp[i])
