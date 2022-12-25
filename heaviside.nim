@@ -106,6 +106,8 @@ func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same 
 
 #---------Tree Transformation Functions---------#
 
+
+
 func isConst(e : HvExpr, wrt : string) : bool =
     if e.kind in numerics or (e.kind == NkIdent and e.val != wrt): return true
 
@@ -132,28 +134,28 @@ func likeTerms(e, e1 : HvExpr) : bool =
 
 # Also, to maintain sanity, also since it's just objectively a good idea, we'll overload definitions of different versions of the same operation
 
-# *
-#     a
-#     *
-#         *
-#             c
-#             d
-#         *
-#             a
-#             b
+# FORWARD DECLS
+func hvPow(e : HvExpr, e1 : HvExpr) : HvExpr
+func hvPlus(e, e1 : HvExpr) : HvExpr
+func hvPlus(e : HvExpr, a : HvNum) : HvExpr {.inline.} # This one just calls the other order
+func hvPlus(a : HvNum, e : HvExpr) : HvExpr
+
+func `+`(a, b : HvNum | HvExpr) : HvExpr = hvPlus(a, b)
+func `+=`[T : HvNum | HvExpr](a : var T, b : T) = a = a + b
 
 
-func transformProd(e : HvExpr) : HvExpr = ## This assumes that we have a max of 2 depth nesting of products, ie the most we get is a*(b*c)
-    ## This is generally correct, since the tree is traversed via DFS, so in any particular instance, we can onyl have 2 depth nesting
-    result = makeExpr(NkCall, "*")
+
+func transAssoc(e : HvExpr) : HvExpr = ## This assumes that we have a max of 2 depth nesting of products, ie the most we get is a*(b*c)
+    ## This is generally correct, since the tree is traversed via DFS, so in any particular instance, we can only have 2 depth nesting
+    result = makeExpr(NkCall, !e)
     
-    if e[0].kind == NkCall and !e[0] == "*":
+    if e[0].kind == NkCall and !e[0] == !result:
         for kid in e[0].kids:
             result.add kid
     else:
         result.add e[0]
 
-    if e[1].kind == NkCall and !e[1] == "*":
+    if e[1].kind == NkCall and !e[1] == !result:
         for kid in e[1].kids:
             result.add kid
     else:
@@ -178,73 +180,77 @@ func hvTimes(a, b : HvNum) : HvExpr =
         return makeExpr makenum(a.fVal * a.iVal.float)
     return makeExpr makenum(a.fVal * b.fVal)
 
-func hvTimes(e : HvExpr, a : HvNum) : HvExpr =
-    if a == makenum 0:
-        return makeExpr 0
-    elif a == makenum 1:
-        if e.kind == NkCall and !e == "*":
-            return transformProd e
-        else:
-            return e
-
-    let preRes = transformProd makeExpr(NkCall, "*").add(makeExpr a, e)
-    
-    var counts : Table[string, int]
-    var mapStrNode : Table[string, HvExpr]
-    for k in preRes.kids:
-        mapStrNode[strTree k] = deepCopy k
-        let kStr = strTree k
-
-        if kStr in counts:
-            counts[kStr] += 1
-        else:
-            counts[kStr] = 1
-    
-
-    result = makeExpr(NkCall, "*")
-    for str in mapStrNode.keys:
-        if counts[str] > 1:
-            result.add makeExpr(NkCall, "^").add(mapStrNode[str], makeExpr counts[str])
-        else:
-            result.add mapStrNode[str]
-            
-    
-
-
-func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(e, a) # multiplication is commutative
-
-proc hvTimes(e, e1 : HvExpr) : HvExpr =
+func hvTimes(e, e1 : HvExpr) : HvExpr =
 
     if e.kind in numerics:
         if e.nVal == makenum 0:
             return makeExpr 0
         elif e.nVal == makenum 1:
-            return transformProd e1
+            if e1.kind == NkCall and !e1 == "*":
+                return transAssoc e1
+            return e1
     elif e1.kind in numerics:
         if e1.nVal == makenum 0:
             return makeExpr 0
         elif e1.nVal == makenum 1:
-            return transformProd e
+            if e.kind == NkCall and !e == "*":
+                return transAssoc e
+            return e
 
-    let preRes = transformProd makeExpr(NkCall, "*").add(e, e1)
+    let preRes = transAssoc makeExpr(NkCall, "*").add(e, e1)
 
-    var counts : Table[string, int]
+    var counts : Table[string, HvExpr]
     var mapStrNode : Table[string, HvExpr]
+    var cFac = makeExpr 1
     for k in preRes.kids:
-        mapStrNode[strTree k] = deepCopy k
-        let kStr = strTree k
+        if k.kind in numerics: # combining constants
+            if cfac.kind == NkIntLit:
+                if k.kind == NkIntLit:
+                    cfac.nVal = makenum cFac.nVal.iVal * k.nVal.iVal
+                else:
+                    cfac.nVal = makenum cFac.nVal.iVal.float * k.nVal.fVal
+                    cfac.kind = NkFloatLit
+            else:
+                if k.kind == NkIntLit:
+                    cfac.nVal = makenum cFac.nVal.fVal * k.nVal.iVal.float
+                else:
+                    cfac.nVal = makenum cFac.nVal.fVal * k.nVal.fVal
+        elif k.kind == NkCall and !k == "^": # a^b * a^c -> a^(b + c)
+            # At the moment, this is assuming that k[1] is numeric, but maybe will change in future
+            let k0Str = strTree k[0]
+            mapStrNode[k0Str] = deepCopy k[0]
 
-        if kStr in counts:
-            counts[kStr] += 1
-        else:
-            counts[kStr] = 1
+            if k0Str in counts:
+                counts[k0Str] += k[1]
+            else:
+                counts[k0Str] = deepCopy k[1]
+        else: # a*a*b -> a^2 * b
+            let kStr = strTree k
+            mapStrNode[kStr] = deepCopy k
+
+            if kStr in counts:
+                counts[kStr] += makeExpr 1
+            else:
+                counts[kStr] = makeExpr 1
     
     result = makeExpr(NkCall, "*")
+    if cFac.nVal != 1:
+        result.add cfac
     for str in mapStrNode.keys:
-        if counts[str] > 1:
-            result.add makeExpr(NkCall, "^").add(mapStrNode[str], makeExpr counts[str])
-        else:
+        if counts[str].kind in numerics and counts[str].nVal == 0:
+            continue
+        if counts[str] == makeExpr 1:
             result.add mapStrNode[str]
+        else:
+            result.add hvPow(mapStrNode[str], counts[str])
+
+
+func hvTimes(e : HvExpr, a : HvNum) : HvExpr = hvTimes(makeExpr a, e)
+
+func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(makeExpr a, e) # multiplication is commutative
+
+
+
 
 
 # Perhaps the sum function should be different, maybe variadic, so I'll call the `+` operator hvPlus for now
@@ -256,12 +262,15 @@ func hvPlus(a, b : HvNum) : HvExpr =
     elif b.isInt:
         return makeExpr makenum(b.iVal.float + a.fVal)
     return makeExpr makenum(b.fVal + a.fVal)
-# The above doesn't handle exprs, we'll need to do that differently
+# The above doesn't handle exprs, we'll need to do that differently (very old comment)
 
-func hvPlus(a : HvNum, e : HvExpr) : HvExpr =
-    result = makeExpr(NkCall, "+").add(makeExpr a, e)
+func hvPlus(a : HvNum, e : HvExpr) : HvExpr = hvPlus(makeExpr a, e)
+
+func hvPlus(e : HvExpr, a : HvNum) : HvExpr = hvPlus(makeExpr a, e) # addition is commutative
 
 func hvPlus(e, e1 : HvExpr) : HvExpr =
+    if e.kind in numerics and e1.kind in numerics:
+        return hvPlus(e.nVal, e1.nVal)
     if e === e1:
         return hvTimes(makenum 2, e)
 
@@ -286,8 +295,6 @@ func hvMinus(e : HvExpr, a : HvNum) : HvExpr =
         return e
 
     return makeExpr(NkCall, "-").add(e, makeExpr a)
-
-func hvPlus(e : HvExpr, a : HvNum) : HvExpr {.inline.} = hvPlus(a, e) # addition is commutative
 
 func hvDiv(a, b : HvNum) : HvExpr =
     if a.isInt and b.isInt:
@@ -335,24 +342,23 @@ func hvPow(a, b : HvNum) : HvExpr =
         else:
             return makeExpr a.fVal.pow(b.fVal)
 
-func hvPow(a : HvNum, e : HvExpr) : HvExpr =
-    if a == makenum 0:
-        return makeExpr 0
-    if a == makenum 1:
-        return makeExpr 1
-    
-    return makeExpr(NkCall, "^").add(makeExpr a, e)
-
-func hvPow(e : HvExpr, a : HvNum) : HvExpr =
-    if a == 0:
-        return makeExpr 1
-    elif a == 1:
-        return e
-
-    return makeExpr(NkCall, "^").add(e, makeExpr a)
-
 func hvPow(e, e1 : HvExpr) : HvExpr =
+    if e1.kind in numerics:
+        if e1.nVal == 0:
+            return makeExpr 1
+        elif e1.nVal == 1:
+            return e
+    
+    # (a^b)^c -> a^(b*c), ie (^ (^ a b) c) -> (^ a (* b c))
+    # This is probably sensible regardless of whether c is an integer
+
+    if e.kind == NkCall and !e == "^":
+        return makeExpr(NkCall, "^").add(e[0], hvTimes(e[1], e1))
+    
     return makeExpr(NkCall, "^").add(e, e1)
+
+func hvPow(a : HvNum, e : HvExpr) : HvExpr = hvPow(makeExpr a, e)
+func hvPow(e : HvExpr, a : HvNum) : HvExpr = hvPow(e, makeExpr a)
 
 
 
