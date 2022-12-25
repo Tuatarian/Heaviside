@@ -1,0 +1,10 @@
+Transform rules:
+- Assoc (a + (b + c) -> a + b + c) #DONE
+- Pow #DONE
+    - a^b * a^c -> a^(b + c) #DONE, in *
+    - (a^b)^c -> a^(b*c)
+        ie, turning (^ (^ a b) c)
+        into (^ a (* b c))
+
+        note that the first expr is not (^ a (^ b c))
+        
