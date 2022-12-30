@@ -1,4 +1,4 @@
-import strutils, tables, zero_functional, strformat, parlex, math, tables
+import strutils, tables, zero_functional, strformat, parlex, math, algorithm
 
 ## We're using an object variant here since I (obviously) don't want to make the user decide whether a number should be a float or an int in a CAS
 ## Also, we're going to require significantly different handling for ints than floats, for example 3/4 should not be converted to 0.75
@@ -129,6 +129,35 @@ func likeTerms(e, e1 : HvExpr) : bool =
 
         return terms.len == 0
 
+
+
+func orderCmp(a, b : HvExpr) : int = ## 1 if a before b, -1 if a after b, 0 if of same order
+    if int(a.kind) < int(b.kind):
+        return 1
+    elif int(a.kind) > int(b.kind):
+        return -1
+    else:
+        if a.kind == NkIntLit or a.kind == NkFloatLit: return int(a.nVal < b.nVal) # sort ints, floats in descending order
+        elif a.kind == NkIdent:
+            if (!a).len == (!b).len: # if they're the same length
+                for i in 0..<(!a).len: # Find the first char that isn't the same, return cmp of that (lowest first)
+                    if (!a)[i] != (!b)[i]:
+                        return int((!a)[i] < (!b)[i])
+            else: return int((!a).len < (!b).len) # sort by length in descending order
+        elif a.kind == NkCall:
+            if !a == "^":
+                if !b == "^":
+                    if a[1] === b[1]:
+                        return 0
+                    else:
+                        if a[1].kind in numerics and b[1].kind in numerics:
+                            return int(a[1].nVal > b[1].nVal)
+                        else:
+                            return orderCmp(a[1], b[1])
+                return 1
+
+
+
 #-------HvFuncs-------#
 # We'll prefix the versions of functions used by heaviside with hv to avoid confusion, so `/` (division) will be hvDiv, etc
 
@@ -202,6 +231,7 @@ func hvTimes(e, e1 : HvExpr) : HvExpr =
     var counts : Table[string, HvExpr]
     var mapStrNode : Table[string, HvExpr]
     var cFac = makeExpr 1
+
     for k in preRes.kids:
         if k.kind in numerics: # combining constants
             if cfac.kind == NkIntLit:
@@ -243,13 +273,18 @@ func hvTimes(e, e1 : HvExpr) : HvExpr =
             result.add mapStrNode[str]
         else:
             result.add hvPow(mapStrNode[str], counts[str])
+    
+    
+    if result.kids.len == 1: # This can happen
+        return result[0]
+
+    # We can apply the commutative transform now, since it doesn't change any of the terms
+    result.kids.sort(orderCmp, Descending)
 
 
 func hvTimes(e : HvExpr, a : HvNum) : HvExpr = hvTimes(makeExpr a, e)
 
 func hvTimes(a : HvNum, e : HvExpr) : HvExpr = hvTimes(makeExpr a, e) # multiplication is commutative
-
-
 
 
 
@@ -274,11 +309,12 @@ func hvPlus(e, e1 : HvExpr) : HvExpr =
     if e === e1:
         return hvTimes(makenum 2, e)
 
-    result = HvExpr(kind : NkCall, val : "+")
-    reparentTo(e, e1, result)
+    result = transAssoc makeExpr(NkCall, "+").add(e, e1)
+
+    result.kids.sort(orderCmp, Descending)
 
 
-# Minus should be different to let elements of the expr tree die faster
+# Minus should be different to let elements of the expr tree die faster [comment has gone obsolete]
 func hvMinus(a, b : HvNum) : HvExpr {.inline.} = hvPlus(a, -b)
 
 func hvMinus(l, r : HvExpr) : HvExpr =
@@ -390,6 +426,29 @@ func hvLn(e : HvExpr) : HvExpr =
         return e[0]
     else:
         return makeExpr(NkCall, "ln").add(e)
+
+
+
+# Some unary +, * will be left over, so we'll just murder them in cold blood
+
+func hvTimes(a : HvExpr | HvNum) : HvExpr = makeExpr a
+func hvPlus(a : HvExpr | HvNum) : HvExpr = makeExpr a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #--------Differentiation---------#
