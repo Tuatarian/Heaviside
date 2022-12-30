@@ -1,10 +1,32 @@
+## indicates a task is completed
+will add more symbols as needed, if they are ever needed
+
+
 Transform rules:
-- Assoc (a + (b + c) -> a + b + c) #DONE
-- Pow #DONE
-    - a^b * a^c -> a^(b + c) #DONE, in *
-    - (a^b)^c -> a^(b*c)
+- Assoc (a + (b + c) -> a + b + c) ##
+- Pow ##
+    - a^b * a^c -> a^(b + c) ## (in *)
+    - (a^b)^c -> a^(b*c) ##
         ie, turning (^ (^ a b) c)
         into (^ a (* b c))
 
         note that the first expr is not (^ a (^ b c))
-        
+- Comm
+    This one is harder
+    Method for this will be to set some order as "canonical", and rearannge the children of a commutative call into that canonical order (described below)
+    We can have a custom orderCmp proc determine the relation between two expressions, or if they're equivalent order wise
+    Then the problem is reduced to just a sort according to the orderCmp function
+
+    Let's make the items that show up first higher order, since that's a bit mroe intuitive
+
+    Order Definition:
+        - IntLit, FlotLit, Ident, Call
+        IntLit:
+            - We shouldn't have more than one of these, but sort by ascending/descending/whatever
+        FloatLit:
+            - Literally same as above
+        Ident:
+            - Length of string (shortest first, shorter is higher order), then alphabetic
+            - so "a" < "x" < "aa" < "ab"
+        Call:
+            - Uhh
