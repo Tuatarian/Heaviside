@@ -22,7 +22,7 @@ type TKind = enum
     TkIntLit, TkFloatLit, TkIdent, TkWSpace, TkStrLit, TkPunc, TkOp, TkPrefOp, TkNull
 
 type NKind* = enum
-    NkIdent, NkCall, NkIntLit, NkFloatLit, NkStrLit, NkRt
+    NkIntLit, NkFloatLit, NkIdent, NkCall, NkStrLit, NkRt
 
 const numerics* = [NkIntLit, NkFloatLit]
 
