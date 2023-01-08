@@ -142,7 +142,9 @@ func orderCmp(a, b : HvExpr) : int = ## 1 if a before b, -1 if a after b, 0 if o
             if (!a).len == (!b).len: # if they're the same length
                 for i in 0..<(!a).len: # Find the first char that isn't the same, return cmp of that (lowest first)
                     if (!a)[i] != (!b)[i]:
-                        return int((!a)[i] < (!b)[i])
+                        return system.cmp[char]((!a)[i], (!b)[i])
+                    elif i == (!a).len - 1: # if chars are all the same
+                        return 0
             else: return int((!a).len < (!b).len) # sort by length in descending order
         elif a.kind == NkCall:
             if !a == "^":
@@ -155,6 +157,12 @@ func orderCmp(a, b : HvExpr) : int = ## 1 if a before b, -1 if a after b, 0 if o
                         else:
                             return orderCmp(a[1], b[1])
                 return 1
+            elif !b == "^":
+                return -1
+            else:
+                if !a == !b:
+                    return 0
+                return int(!a < !b)
 
 
 
@@ -321,20 +329,25 @@ func hvMinus(l, r : HvExpr) : HvExpr =
     if l === r:
         return makeExpr makenum 0
     else:
-        return makeExpr(NkCall, "-").add(l, r)
+        return hvPlus(l, hvTimes(makenum -1, r))
 
 func hvMinus(a : HvNum, e : HvExpr) : HvExpr =
-    result = makeExpr(NkCall, "-").add(makeExpr a, e)
+    result = hvMinus(makeExpr a, e)
 
 func hvMinus(e : HvExpr, a : HvNum) : HvExpr =
     if a == 0:
         return e
 
-    return makeExpr(NkCall, "-").add(e, makeExpr a)
+    return hvMinus(e, makeExpr a)
+
+
+
+func hvDiv(e, e1 : HvExpr) : HvExpr =
+    return hvTimes(e, hvPow(e1, makeExpr -1))
 
 func hvDiv(a, b : HvNum) : HvExpr =
     if a.isInt and b.isInt:
-        return makeExpr(NkCall, "/").add(makeExpr a, makeExpr b)
+        return hvDiv(makeExpr a, makeExpr b)
     elif a.isInt:
         return makeExpr a.iVal.float/b.fVal
     elif b.isInt:
@@ -342,17 +355,11 @@ func hvDiv(a, b : HvNum) : HvExpr =
     else:
         return makeExpr a.fVal/b.fVal
 
-func hvDiv(e, e1 : HvExpr) : HvExpr =
-    if e === e1:
-        return makeExpr 1
-    else:
-        return makeExpr(NkCall, "/").add(e, e1)
-
 func hvDiv(a : HvNum, e : HvExpr) : HvExpr =
-    return makeExpr(NkCall, "/").add(makeExpr a, e)
+    return hvDiv(makeExpr a, e)
 
 func hvDiv(e : HvExpr, a : HvNum) : HvExpr =
-    return makeExpr(NkCall, "/").add(e, makeExpr a)
+    return hvDiv(e, makeExpr a)
 
 func hvPow(a, b : HvNum) : HvExpr =
     if b == makenum 0:
@@ -706,10 +713,10 @@ proc evalTree(rt : ASTNode) : HvExpr =
                 echo "Unexpected Node Kind in tree evaluation"
                 writeStackTrace()
         
-        # debugEcho (paramTypes, params)
+        debugEcho (paramTypes, params)
         result = callMagicFunc(paramTypes, params)
-        # print result
-        # echo "~~>"
+        print result
+        echo "~~>"
     elif rt.kind == NkRt:
         result = ASTNode(kind : NkRt)
         for kid in rt.kids:
