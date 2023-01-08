@@ -8,7 +8,7 @@ const prefOps = syms[4].split(',').map(x => x[0])
 const precLines = readfile("./precedence.txt").splitLines
 const ops = readFile("./precedence.txt").replace("\n", ",").split(",").toSeq.filter(x => x.len > 0).map(x => x[0])
 
-const precs = block:
+const precs* = block:
     var precs = initTable[string, int]()
     for i in 0..<precLines.len:
         for o in precLines[i].split(','):
