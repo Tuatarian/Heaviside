@@ -1,6 +1,15 @@
 ## indicates a task is completed
+@x is equivalent to saying Ident x
+@[s] means @s, where the value of s may not be important, but all @[s] within the section should have the same value
+
+So for example, if I say that two nodes should be @[z], the actual value in the node can be anything (so they can both be @x, @y, @juscelino, or literally anything) but they must be the same
+
+
+
 will add more symbols as needed, if they are ever needed
 
+
+-- AUTOMATIC SIMPLIFICATION -- ##
 
 Transform rules:
 - Assoc (a + (b + c) -> a + b + c) ##
@@ -11,7 +20,7 @@ Transform rules:
         into (^ a (* b c))
 
         note that the first expr is not (^ a (^ b c))
-- Comm
+- Comm ##
     This one is harder
     Method for this will be to set some order as "canonical", and rearannge the children of a commutative call into that canonical order (described below)
     We can have a custom orderCmp proc determine the relation between two expressions, or if they're equivalent order wise
@@ -28,5 +37,44 @@ Transform rules:
         Ident:
             - Length of string (shortest first, shorter is higher order), then alphabetic
             - so "a" < "x" < "aa" < "ab"
-        Call:
-            - Uhh
+        Call: ##
+            - Uhh (this one is hard, obviously)
+            - So everything in the call should be ordered canonically
+            - The actual order doesn't matter a whole lot
+            - We put ^ first, arrange by powers, then by precedence
+
+So I think I'm more or less done with autosimp, will return later if needed
+
+Probably worth moving on to next step, probably analysis and manipulation of single variable polynomials
+
+This is applied automatically when the tree is evaluated (it is intrinsic to the definition of the operators) so we don't need to worry much about it
+
+-- POLYNOMIALS IN ONE VARIABLE --
+
+A polynomial in one variable is an expression of the form a_n*x^n + a_n-1*x^n-1... + a_0
+
+As a tree, this would be:
++
+    *
+        NumLit
+        ^
+            Ident x
+            NumLit
+    *
+        NumLit
+        ^
+            Ident x
+            NumLit
+
+with arbitrarily many summands. The most important part of this is that all the values of the idents should be the same, so if we swap out the second "Ident x" for an "Ident y", that no longer forms a single variable polynomial
+
+Given a node, we can determine if it is a polynomial by asking:
+
+1. Is it a sum?
+2. Are all children of the sum:
+    a. Constants
+    b. @[s]
+    c. Products with constants and @[s] some power, in other words, c * @[s]^n
+
+Then it is a single-variable polynomial in s
+
