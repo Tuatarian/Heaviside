@@ -444,13 +444,51 @@ func hvPlus(a : HvExpr | HvNum) : HvExpr = makeExpr a
 
 
 
+#-------Single-Variable Polynomials------#
 
+func isPolynomial(e : HvExpr) : bool =
+    var polIn : string
+    if e.kind == NkCall and e.val == "+":
+        for kid in e.kids:
+            if kid.kind in numerics: continue # numbers always fine
 
+            elif kid.kind == NkIdent: # Below code checks if the ident is correct
+                if polIn != "":
+                    if !kid != polIn:
+                        return false
+                    continue
+                else:
+                    polIn = !kid
+                    continue
 
+            elif kid.kind == NkCall and kid.val == "*" and kid.kids.len == 2: # we should otherwise have a product of two things
 
+                if kid[0].kind in numerics: continue # first thing should be a number (due to the enforced order)
+                else: return false
 
+                if kid[1].kind == NkIdent: # Kid 1 can be a (correct) ident
+                    if polIn != "":
+                        if !kid != polIn:
+                            return false
+                        continue
+                    else:
+                        polIn = !kid
+                        continue
 
+                if kid[1].kind == NkCall and !kid[1] == "^": # Or a correct ident to some INTEGER power
+                    if kid[1][0].kind == NkIdent and kid[1][1].kind == NkIntLit:
+                        if polIn != "":
+                            if polIn != !kid[1][0]:
+                                return false
+                        else: 
+                            polIn = !kid[1][0]
+                            continue
+                    else: return false
+                else: return false
 
+            else: return false
+    return true
+                    
 
 
 
@@ -727,4 +765,6 @@ proc evalTree(rt : ASTNode) : HvExpr =
 var rt = strParse readFile("./symbols.txt").splitLines[6]
 print rt
 echo "/============================/"
-print evalTree(rt)
+rt = evalTree rt
+print rt
+echo isPolynomial rt
