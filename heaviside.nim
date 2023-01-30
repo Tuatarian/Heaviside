@@ -59,7 +59,7 @@ proc print(v : HvVal) =
     of Expr: print(v.eVal, 0)
     of Str: echo v.sVal
 
-func makeExpr(a : HvNum, p : ASTNode = nil) : HvExpr = 
+func makeExpr(a : HvNum, p : HvExpr = nil) : HvExpr = 
     if a.isInt:
         return HvExpr(kind : NkIntLit, nVal : a, parentalUnit : p)
     else:
@@ -104,8 +104,10 @@ func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same 
             return true
     return false
 
-#---------Tree Transformation Functions---------#
 
+
+
+#---------Tree Transformation Functions---------#
 
 
 func isConst(e : HvExpr, wrt : string) : bool =
@@ -169,7 +171,7 @@ func orderCmp(a, b : HvExpr) : int = ## 1 if a before b, -1 if a after b, 0 if o
 #-------HvFuncs-------#
 # We'll prefix the versions of functions used by heaviside with hv to avoid confusion, so `/` (division) will be hvDiv, etc
 
-# Also, to maintain sanity, also since it's just objectively a good idea, we'll overload definitions of different versions of the same operation
+# Also, to maintain sanity, and since it's just objectively a good idea, we'll overload definitions of different versions of the same operation
 
 # FORWARD DECLS
 func hvPow(e : HvExpr, e1 : HvExpr) : HvExpr
@@ -622,7 +624,7 @@ func diff(e : HvExpr, wrt : string) : HvExpr =
 
 #-------Calling builtin Functions-------#
 
-proc evalTree(rt : ASTNode) : HvExpr # Forward decl, for immediate simplification of complex ops
+# proc evalTree(rt : ASTNode) : HvExpr # Forward decl, for immediate simplification of complex ops
 
 proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     if id == "+ HvNum HvNum ":
@@ -642,6 +644,7 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
         return hvMinus(args[0].eVal, args[1].eVal)
     elif id == "- HvExpr HvNum " or id == "- HvNum HvExpr ":
         if args[0].kind == Num:
+            debugEcho args[1].eVal == nil
             return hvMinus(args[0].nVal, args[1].eVal)
         else:
             return hvMinus(args[0].eVal, args[1].nVal)
@@ -697,7 +700,7 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
         return hvTimes(makenum -1, args[0].nVal)
 
     elif id == "diff HvExpr Str ":
-        return evalTree(diff(evalTree args[0].eVal, args[1].sVal))
+        return diff(args[0].eVal, args[1].sVal)
     
     else:
         for arg in args:
@@ -720,12 +723,13 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
     # The type is the type of the node (NumLit or Expr)
     # This might move onto the tree itself at some point in the future
 
-proc evalTree(rt : ASTNode) : HvExpr =
+proc evalTree(rt : var ASTNode) : HvExpr =
     if rt.kind == NkCall:
         var params : seq[HvVal]
         var paramTypes = !rt & " "
 
-        for k in rt.kids:
+        for i in 0..<rt.kids.len:
+            var k = rt[i]
             case k.kind:
             of NkIdent:
                 paramTypes &= "HvExpr "
@@ -753,12 +757,13 @@ proc evalTree(rt : ASTNode) : HvExpr =
         
         debugEcho (paramTypes, params)
         result = callMagicFunc(paramTypes, params)
+        `=destroy` rt
         print result
         echo "~~>"
     elif rt.kind == NkRt:
         result = ASTNode(kind : NkRt)
-        for kid in rt.kids:
-            result.add(evalTree kid)
+        for i in 0..<rt.kids.len:
+            result.add(evalTree rt[i])
     else:
         result = deepCopy rt
 
@@ -767,4 +772,18 @@ print rt
 echo "/============================/"
 rt = evalTree rt
 print rt
-echo isPolynomial rt
+# echo isPolynomial rt
+
+
+proc recApply(n : ASTNode, p : proc(m : ASTNode)) =
+    p(n)
+    for kid in n.kids:
+        recApply(kid, p)
+
+proc isParNil(n : ASTNode) =
+    echo n.parentalUnit == nil
+    if n.parentalUnit != nil:
+        echo "   " & !n.parentalUnit
+        echo "   " & !n
+
+recApply(rt, isParNil)

@@ -44,6 +44,19 @@ type ASTNode* = ref object
     kids* : seq[ASTNode]
     parentalUnit* : ASTNode
 
+proc destroy(n : var ASTNode) =
+    for i in 0..<n.kids.len:
+        destroy n.kids[i]
+    `=destroy` n
+
+proc deepCopy*(n : ASTNode) : ASTNode =
+    result = ASTNode(kind : n.kind, parentalUnit : n.parentalUnit)
+    if result.kind in numerics:
+        result.nVal = n.nVal
+    else:
+        result.val = n.val
+    for kid in n.kids:
+        result.kids.add deepCopy kid
 
 func `$`*(n : HvNum) : string = 
     if n.isInt: return $n.iVal
@@ -139,7 +152,6 @@ func `<`*(a, b : HvNum) : bool = op(a, b, `<`)
 
 
 
-
 proc partFile*(inp : string) : seq[string] =
     var cWord : string
     for c in inp:
@@ -181,21 +193,13 @@ proc delete[T, N](s : var seq[T], r : Slice[Natural]) = ## Delete all items in r
     for i in 0..<r.len:
         s.delete(r.a)
 
-proc add*(n : ASTNode, n1 : ASTNode, copy : bool = false, setPar : bool = false) : ASTNode {.discardable.} =
-    if copy:
-        n.kids.add deepCopy n1
-        if setPar: n[^1].parentalUnit = n1
-    else:
-        n.kids.add n1
-        if setPar: n1.parentalUnit = n
-    return n
+proc add*(n : ASTNode, n1 : ASTNode) : ASTNode {.discardable.} =
+    n.kids.add deepCopy n1
+    n[^1].parentalUnit = n
 
 proc add*(n : ASTNode, nodes : varargs[ASTNode]) : ASTNode =
-    for node in nodes: n.add(node)
-    return n
-
-proc add*(n : ASTNode, nodes : varargs[ASTNode], copy : bool, setPars : bool) : ASTNode =
-    for node in nodes: n.add(node, copy, setPars)
+    for node in nodes:
+        n.add(node)
     return n
 
 proc pushInto[T](e : T, s : var openArray[T], frm : int) =
@@ -205,7 +209,10 @@ proc pushInto[T](e : T, s : var openArray[T], frm : int) =
 
 proc reparentTo*(n : ASTNode, p : ASTNode) =
     p.kids.add(n)
-    if n.parentalUnit != nil: n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
+    if n.parentalUnit != nil: 
+        n.parentalUnit.kids.delete(n.parentalUnit.kids.find(n))
+        if n.parentalUnit.kids.len == 0 and n.parentalUnit.parentalUnit == nil:
+            `=destroy`(n.parentalUnit)
     n.parentalUnit = p
 
 proc reparentTo*(nodes : varargs[ASTNode], p : ASTNode) =
@@ -280,7 +287,7 @@ proc parseArg*(rt : ASTNode, inp : seq[Token]) =
     # The logic for doing this with a prefix operator is detailed below
     # This function no longer deals with infix operators 
     
-    if $$inp[0] == '(' and $$inp[^1] == ')': # This is a hack for parsing things wrapped in (), which neither this nor parseExpr could properly do
+    if $$inp[0] == '(' and $$inp[^1] == ')': # This is a hack for parsing things wrapped in (), which neither this nor parseExpr could properly do. It just literally throws away the ()
         if '(' notin inp[1..^2].map(x => $$x):
             rt.parseExpr(inp[1..^2])
             return
@@ -419,5 +426,25 @@ proc strParse*(inp : string) : ASTNode =
 # proc infixTree(rt : ASTNode) : string =
     # We'll do the same thing of going through postfix
 
+proc recApply[T](n : ASTNode, p : proc(m : ASTNode) : T) : T =
+    p(n)
+    for kid in n.kids:
+        recApply(kid, p)
+
+# proc recApply(n : ASTNode, p : proc(m : ASTNode)) =
+#     p(n)
+#     for kid in n.kids:
+#         recApply(kid, p)
+# 
 # var rt = strParse readFile("./symbols.txt").splitLines[6]
 # print rt
+# 
+# proc isParNil(n : ASTNode) =
+#     echo n.parentalUnit == nil
+#     if n.parentalUnit != nil:
+#         echo "   " & !n.parentalUnit
+#         echo "   " & !n
+# 
+
+# recApply(rt, isParNil)
+
