@@ -1,114 +1,9 @@
-import strutils, tables, zero_functional, strformat, parlex, math, algorithm
+import strutils, tables, zero_functional, strformat, parlex, math, algorithm, hvcore, hvpoly
 
 ## We're using an object variant here since I (obviously) don't want to make the user decide whether a number should be a float or an int in a CAS
-## Also, we're going to require significantly different handling for ints than floats, for example 3/4 should not be converted to 0.75
-
-type HvType = enum
-    Num, Expr, Str
-
-type HvExpr = ASTNode
-
-type HvVal = object  # Using this for things who's types are unknown (like unevaluated parameters)
-    case kind : HvType
-    of Num: nVal : HvNum
-    of Expr: eVal : HvExpr
-    of Str: sVal : string
-
-#-------Convenience funcs-------#)
-
-func `$`(p : pointer) : string = "0x" & cast[int](p).toHex
-
-func nType(n : HvNum) : NKind =
-    if n.isInt: return NkIntLit
-    else: return NkFloatLit
-
-template hvType(n : NKind) : HvType =
-    case n:
-    of NkIntLit, NkFloatLit: Num
-    of NkStrLit: Str
-    else: Expr
-
-func `-`(a : HvNum) : HvNum =
-    if a.isInt: return makenum(-a.iVal)
-    else: return makenum(-a.fVal)
-
-template makeval(h : HvNum) : untyped = HvVal(kind : Num, nVal : h)
-template makeval(e : HvExpr) : untyped = HvVal(kind : Expr, eVal : e)
-
-template val(v : HvVal) : untyped =
-    when v.kind == Num:
-        v.nVal.val
-    elif v.kind == Expr:
-        v.eVal 
-
-template apply(n: HvNum, act : untyped) : untyped =
-    if n.isInt:
-        act(n.iVal)
-    else:
-        act(n.fVal)
-
-func `$`(v : HvVal) : string =
-    case v.kind:
-    of Num: $v.nVal
-    of Expr: !v.eVal
-    of Str: v.sVal
-
-proc print(v : HvVal) =
-    case v.kind:
-    of Num: echo v.nVal
-    of Expr: print(v.eVal, 0)
-    of Str: echo v.sVal
-
-func makeExpr(a : HvNum, p : HvExpr = nil) : HvExpr = 
-    if a.isInt:
-        return HvExpr(kind : NkIntLit, nVal : a, parentalUnit : p)
-    else:
-        return HvExpr(kind : NkFloatLit, nVal : a, parentalUnit : p)
-
-func makeExpr(k : NKind, v : string = "", n : HvNum = makenum 0, p : HvExpr = nil, childs : seq[HvExpr] = @[]) : HvExpr {.inline.} =
-    result = HvExpr(kind : k, kids : childs, parentalUnit : p)
-    if result.kind in numerics:
-        result.nVal = n
-    else:
-        result.val = v
-
-func makeExpr(n : int | float) : HvExpr = makeExpr makenum n
-
-func makeExpr(v : HvVal) : HvExpr =
-    if v.kind == Num:
-        return makeExpr v.nVal
-    else: return v.eVal
-
-func `==`(a, b : HvNum) : bool =
-    if a.isInt:
-        if b.isInt:
-            return a.iVal == b.iVal
-        let (bi, bf) = splitDecimal b.fVal
-        return bf.trunc.almostEqual(0.0) and bi.int == a.iVal
-    else:
-        if b.isInt:
-            let (ai, af) = splitDecimal a.fVal
-            return ai.int == b.iVal and af.almostEqual 0.0
-        return b.fVal.almostEqual a.fVal
-
-func `==`(a : HvNum, b : int | float) : bool = a == makenum b
-
-func `===`(e, e1 : HvExpr) : bool = ## Strict and stupid equality, not the same as checking if an expression is equal to another
-    if e.kind == e1.kind:
-        if e.kind in numerics:
-            return e.nVal == e1.nVal
-        elif e.val == e1.val and e.kids.len == e1.kids.len:
-            for i in 0..<e.kids.len:
-                if not (e[i] === e1[i]):
-                    return false
-            return true
-    return false
-
-
-
+## Also, we're going to require significantly different handling for ints and floats, for example 3/4 should not be converted to 0.75
 
 #---------Tree Transformation Functions---------#
-
 
 func isConst(e : HvExpr, wrt : string) : bool =
     if e.kind in numerics or (e.kind == NkIdent and e.val != wrt): return true
@@ -130,7 +25,6 @@ func likeTerms(e, e1 : HvExpr) : bool =
                     if i == terms.len - 1: return false
 
         return terms.len == 0
-
 
 
 func orderCmp(a, b : HvExpr) : int = ## 1 if a before b, -1 if a after b, 0 if of same order
@@ -161,6 +55,12 @@ func orderCmp(a, b : HvExpr) : int = ## 1 if a before b, -1 if a after b, 0 if o
                 return 1
             elif !b == "^":
                 return -1
+            elif !a == "*" and !b == "*":
+                let (ap, bp) = (isPoly a, isPoly b)
+                if ap[0] and bp[0]:
+                    if ap[1] == bp[1]: return 0
+                    else: return int(!ap[1] < !bp[1])
+                
             else:
                 if !a == !b:
                     return 0
@@ -448,50 +348,6 @@ func hvPlus(a : HvExpr | HvNum) : HvExpr = makeExpr a
 
 #-------Single-Variable Polynomials------#
 
-func isPolynomial(e : HvExpr) : bool =
-    var polIn : string
-    if e.kind == NkCall and e.val == "+":
-        for kid in e.kids:
-            if kid.kind in numerics: continue # numbers always fine
-
-            elif kid.kind == NkIdent: # Below code checks if the ident is correct
-                if polIn != "":
-                    if !kid != polIn:
-                        return false
-                    continue
-                else:
-                    polIn = !kid
-                    continue
-
-            elif kid.kind == NkCall and kid.val == "*" and kid.kids.len == 2: # we should otherwise have a product of two things
-
-                if kid[0].kind in numerics: continue # first thing should be a number (due to the enforced order)
-                else: return false
-
-                if kid[1].kind == NkIdent: # Kid 1 can be a (correct) ident
-                    if polIn != "":
-                        if !kid != polIn:
-                            return false
-                        continue
-                    else:
-                        polIn = !kid
-                        continue
-
-                if kid[1].kind == NkCall and !kid[1] == "^": # Or a correct ident to some INTEGER power
-                    if kid[1][0].kind == NkIdent and kid[1][1].kind == NkIntLit:
-                        if polIn != "":
-                            if polIn != !kid[1][0]:
-                                return false
-                        else: 
-                            polIn = !kid[1][0]
-                            continue
-                    else: return false
-                else: return false
-
-            else: return false
-    return true
-                    
-
 
 
 
@@ -644,7 +500,6 @@ proc callMagicFunc(id : string, args : seq[HvVal]) : HvExpr =
         return hvMinus(args[0].eVal, args[1].eVal)
     elif id == "- HvExpr HvNum " or id == "- HvNum HvExpr ":
         if args[0].kind == Num:
-            debugEcho args[1].eVal == nil
             return hvMinus(args[0].nVal, args[1].eVal)
         else:
             return hvMinus(args[0].eVal, args[1].nVal)
@@ -772,18 +627,18 @@ print rt
 echo "/============================/"
 rt = evalTree rt
 print rt
-# echo isPolynomial rt
+echo (isPoly(rt[0])[0], !isPoly(rt[0])[1])
 
 
-proc recApply(n : ASTNode, p : proc(m : ASTNode)) =
-    p(n)
-    for kid in n.kids:
-        recApply(kid, p)
+# proc recApply(n : ASTNode, p : proc(m : ASTNode)) =
+#     p(n)
+#     for kid in n.kids:
+#         recApply(kid, p)
 
-proc isParNil(n : ASTNode) =
-    echo n.parentalUnit == nil
-    if n.parentalUnit != nil:
-        echo "   " & !n.parentalUnit
-        echo "   " & !n
+# proc isParNil(n : ASTNode) =
+#     echo n.parentalUnit == nil
+#     if n.parentalUnit != nil:
+#         echo "   " & !n.parentalUnit
+#         echo "   " & !n
 
-recApply(rt, isParNil)
+# recApply(rt, isParNil)
