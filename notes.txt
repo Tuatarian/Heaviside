@@ -1,0 +1,97 @@
+## indicates a task is completed
+@x is equivalent to saying Ident x
+@[s] means @s, where the value of s may not be important, but all @[s] within the section should have the same value
+
+So for example, if I say that two nodes should be @[z], the actual value in the node can be anything (so they can both be @x, @y, @juscelino, or literally anything) but they must be the same
+
+
+will add more symbols as needed, if they are ever needed
+
+-- PARSER REWRITE --
+
+So now we have to think about how to parse things
+
+I already implemented this, but my earlier impl is borderline incomprehensible and I'm gonna try to do it a bit cleaner this time
+Basic outline of the strategy will be to:
+
+(a) big function called [parse_arg] which will delegate when it encounters a function call or an infix operator, but will deal with prefix operators
+(b) much smaller function [parse_call] which delegates for every arg that isn't size 1
+(c) similarly large function [parse_expr] which will initially take in the expr and deal with all infix operators.
+I will copy this explanation into the notes file, which I'll put into the root dir
+
+Also, these should perhaps be methods on ParseDat instead of independent functions, but whatever, who really cares anyway
+
+This is of course messy - I handle prefix and infix operators in entirely different functions, whcih seems stupid, but I'm trying to copy my impl from last time since I know it works. However, I do want to simplify and document it so that when I inevitably find that it has a major shortcoming, I will have a less hellish time going into my own code and trying to fix the issue or extend the program.
+
+There is an argument to be made that I would benefit immensely from looking through a small amount of a book on parsers, or even something like the section on the Pratt Parser that surely exists in that one Crafting Interpreters book, but that would be work, and we can't be doing any of that.
+
+-- AUTOMATIC SIMPLIFICATION -- ##
+
+Transform rules:
+- Assoc (a + (b + c) -> a + b + c) ##
+- Pow ##
+    - a^b * a^c -> a^(b + c) ## (in *)
+    - (a^b)^c -> a^(b*c) ##
+        ie, turning (^ (^ a b) c)
+        into (^ a (* b c))
+
+        note that the first expr is not (^ a (^ b c))
+- Comm ##
+    This one is harder
+    Method for this will be to set some order as "canonical", and rearannge the children of a commutative call into that canonical order (described below)
+    We can have a custom orderCmp proc determine the relation between two expressions, or if they're equivalent order wise
+    Then the problem is reduced to just a sort according to the orderCmp function
+
+    Let's make the items that show up first higher order, since that's a bit mroe intuitive
+
+    Order Definition:
+        - IntLit, FlotLit, Ident, Call
+        IntLit:
+            - We shouldn't have more than one of these, but sort by ascending/descending/whatever
+        FloatLit:
+            - Literally same as above
+        Ident:
+            - Length of string (shortest first, shorter is higher order), then alphabetic
+            - so "a" < "x" < "aa" < "ab"
+        Call: ##
+            - Uhh (this one is hard, obviously)
+            - So everything in the call should be ordered canonically
+            - The actual order doesn't matter a whole lot
+            - We put ^ first, arrange by powers, then by precedence
+
+So I think I'm more or less done with autosimp, will return later if needed
+
+Probably worth moving on to next step, probably analysis and manipulation of single variable polynomials
+
+This is applied automatically when the tree is evaluated (it is intrinsic to the definition of the operators) so we don't need to worry much about it
+
+-- POLYNOMIALS IN ONE VARIABLE --
+
+A polynomial in one variable is an expression of the form a_n*x^n + a_n-1*x^n-1... + a_0
+
+As a tree, this would be:
++
+    *
+        NumLit
+        ^
+            Ident x
+            NumLit
+    *
+        NumLit
+        ^
+            Ident x
+            NumLit
+
+with arbitrarily many summands. The most important part of this is that all the values of the idents should be the same, so if we swap out the second "Ident x" for an "Ident y", that no longer forms a single variable polynomial
+
+Given a node, we can determine if it is a polynomial by asking:
+
+1. Is it a sum?
+2. Are all children of the sum:
+    a. Constants
+    b. @[s]
+    c. Products with constants and @[s] some power, in other words, c * @[s]^n
+
+Then it is a single-variable polynomial in s
+
+We will have situations where a polynomial is trivially embedded in a larger expression
