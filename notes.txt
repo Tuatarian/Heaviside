@@ -1,0 +1,129 @@
+## indicates a task is completed
+@x is equivalent to saying Ident x
+@[s] means @s, where the value of s may not be important, but all @[s] within the section should have the same value
+
+So for example, if I say that two nodes should be @[z], the actual value in the node can be anything (so they can both be @x, @y, @juscelino, or literally anything) but they must be the same
+
+
+
+will add more symbols as needed, if they are ever needed
+
+
+-- PARSER REWRITE -- [NOT DOING THIS - IT'S REALLY NOT WORTH THE PAIN, AND THERE IS A LOT OF PAIN]
+
+Everything I have written below is officially out of date, because I realized that I was just going to end up with the same unreadable mess I had before. Therefore, I'll just directly port the unreadable mess I had before and not worry about it too much
+
+The old parser is sucky and bad, lets make the new one not sucky and good.
+
+- Read until you see a [wspace in wspaces] while you have nest_count 0
+- All that stuff that we read forms an Arg
+
+- We recursively run the parse function on that Arg, starting from the beginning
+     - There is a case in which we have an Arg wrapped in parens. We can't do much to this, so we simply discard the parens and run the thing again
+
+- There are 2 main cases here (all thanks to infix operators): One where we have infix operators in top-level (nest_count 0) and one where we don't
+
+    - We should hand over dealing with infix operators to another function, perhaps call it parseInfix or something. I will worry about the implementation later
+    - We can deal with things wihtout infix operators inside them in our parseExpr function itself
+
+- Otherwise, (the hope is that) we will eventually reach a "fundamental" arg, something like a numeric/string literal, or an Ident
+- To deal with these cases, we just need to have a big switch statement in our parse function that handles all of this kind
+
+Where do we append things?
+
+- We pass in a Node called Rt or similar to the parse function, by default all appends go here
+
+- There are 3 cases in which we'd want to append to not Rt:
+    - Function calls
+    - Prefix Operators
+    - Infix operators
+
+    - Each of these will require mildly different handling, but will share the central idea
+    - We will hold a global Node* append_to, which simply points to the node that we should be appending to
+
+    - append_to will be set based on some rules, which are basically:
+        - If we're inside a function call, append_to = the call
+	- If we're inside a prefOp, same thing
+	- If we're inside an infix op, make that a prefOp and do the same thing
+
+    - This invites the question, what is all this stuff?
+        - A Call is an Arg that looks like @x(..)
+	- A PrefOp is an Arg that looks like !.. where ! is any PrefOp
+	- An infix operator looks like .. + ..
+
+    -  We want to transform these to:
+        NkCall [..]
+	    Args(..)
+
+
+-- AUTOMATIC SIMPLIFICATION -- ##
+
+Transform rules:
+- Assoc (a + (b + c) -> a + b + c) ##
+- Pow ##
+    - a^b * a^c -> a^(b + c) ## (in *)
+    - (a^b)^c -> a^(b*c) ##
+        ie, turning (^ (^ a b) c)
+        into (^ a (* b c))
+
+        note that the first expr is not (^ a (^ b c))
+- Comm ##
+    This one is harder
+    Method for this will be to set some order as "canonical", and rearannge the children of a commutative call into that canonical order (described below)
+    We can have a custom orderCmp proc determine the relation between two expressions, or if they're equivalent order wise
+    Then the problem is reduced to just a sort according to the orderCmp function
+
+    Let's make the items that show up first higher order, since that's a bit more intuitive
+
+    Order Definition:
+        - IntLit, FlotLit, Ident, Call
+        IntLit:
+            - We shouldn't have more than one of these, but sort by ascending/descending/whatever
+        FloatLit:
+            - Literally same as above
+        Ident:
+            - Length of string (shortest first, shorter is higher order), then alphabetic
+            - so "a" < "x" < "aa" < "ab"
+        Call: ##
+            - Uhh (this one is hard, obviously)
+            - So everything in the call should be ordered canonically
+            - The actual order doesn't matter a whole lot
+            - We put ^ first, arrange by powers, then by precedence
+
+So I think I'm more or less done with autosimp, will return later if needed
+
+Probably worth moving on to next step, probably analysis and manipulation of single variable polynomials
+
+This is applied automatically when the tree is evaluated (it is intrinsic to the definition of the operators) so we don't need to worry much about it
+
+-- POLYNOMIALS IN ONE VARIABLE --
+
+A polynomial in one variable is an expression of the form a_n*x^n + a_n-1*x^n-1... + a_0
+
+As a tree, this would be:
++
+    *
+        NumLit
+        ^
+            Ident x
+            NumLit
+    *
+        NumLit
+        ^
+            Ident x
+            NumLit
+
+with arbitrarily many summands. The most important part of this is that all the values of the idents should be the same, so if we swap out the second "Ident x" for an "Ident y", that no longer forms a single variable polynomial
+
+Given a node, we can determine if it is a polynomial by asking:
+
+1. Is it a sum?
+2. Are all children of the sum:
+    a. Constants
+    b. @[s]
+    c. Products with constants and @[s] some power, in other words, c * @[s]^n
+
+Then it is a single-variable polynomial in s
+
+We will have situations where a polynomial is trivially embedded in a larger expression
+
