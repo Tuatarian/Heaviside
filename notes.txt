@@ -9,52 +9,13 @@ So for example, if I say that two nodes should be @[z], the actual value in the 
 will add more symbols as needed, if they are ever needed
 
 
--- PARSER REWRITE -- [NOT DOING THIS - IT'S REALLY NOT WORTH THE PAIN, AND THERE IS A LOT OF PAIN]
+-- PARSER REWRITE --
 
-Everything I have written below is officially out of date, because I realized that I was just going to end up with the same unreadable mess I had before. Therefore, I'll just directly port the unreadable mess I had before and not worry about it too much
+We have one parseExpr function that does it all using Shunting Yard.
 
-The old parser is sucky and bad, lets make the new one not sucky and good.
+The only case remaining is the case in which there are no operators whatsoever. This is hard, and I now see why I had so much complexity in my earlier code
 
-- Read until you see a [wspace in wspaces] while you have nest_count 0
-- All that stuff that we read forms an Arg
-
-- We recursively run the parse function on that Arg, starting from the beginning
-     - There is a case in which we have an Arg wrapped in parens. We can't do much to this, so we simply discard the parens and run the thing again
-
-- There are 2 main cases here (all thanks to infix operators): One where we have infix operators in top-level (nest_count 0) and one where we don't
-
-    - We should hand over dealing with infix operators to another function, perhaps call it parseInfix or something. I will worry about the implementation later
-    - We can deal with things wihtout infix operators inside them in our parseExpr function itself
-
-- Otherwise, (the hope is that) we will eventually reach a "fundamental" arg, something like a numeric/string literal, or an Ident
-- To deal with these cases, we just need to have a big switch statement in our parse function that handles all of this kind
-
-Where do we append things?
-
-- We pass in a Node called Rt or similar to the parse function, by default all appends go here
-
-- There are 3 cases in which we'd want to append to not Rt:
-    - Function calls
-    - Prefix Operators
-    - Infix operators
-
-    - Each of these will require mildly different handling, but will share the central idea
-    - We will hold a global Node* append_to, which simply points to the node that we should be appending to
-
-    - append_to will be set based on some rules, which are basically:
-        - If we're inside a function call, append_to = the call
-	- If we're inside a prefOp, same thing
-	- If we're inside an infix op, make that a prefOp and do the same thing
-
-    - This invites the question, what is all this stuff?
-        - A Call is an Arg that looks like @x(..)
-	- A PrefOp is an Arg that looks like !.. where ! is any PrefOp
-	- An infix operator looks like .. + ..
-
-    -  We want to transform these to:
-        NkCall [..]
-	    Args(..)
-
+That being said, it should be solvable, as we can simply wait to check that _there are no operators at all_ instead of just no operators in top level before delegating out of parseExpr
 
 -- AUTOMATIC SIMPLIFICATION -- ##
 

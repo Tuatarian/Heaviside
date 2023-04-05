@@ -41,6 +41,7 @@ pub fn build(b: *std.Build) void {
     // files, this ensures they will be present and in the expected location.
     run_cmd.step.dependOn(b.getInstallStep());
 
+
     // This allows the user to pass arguments to the application in the build
     // command itself, like this: `zig build run -- arg1 arg2 etc`
     if (b.args) |args| {
@@ -65,4 +66,5 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
+    test_step.dependOn(&exe_tests.run().step);
 }
